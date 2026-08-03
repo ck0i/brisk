@@ -73,10 +73,13 @@ export class ChildSession {
     this.adapter = adapter;
   }
 
-  attach(loop: AgentLoop): void {
+  attach(loop: AgentLoop, onProgress?: () => void): void {
     if (this.loop) throw new Error("Child session already has an agent loop");
     this.loop = loop;
-    this.unsubscribe = loop.subscribe((event) => this.record(event));
+    this.unsubscribe = loop.subscribe((event) => {
+      this.record(event);
+      if (onProgress && isProgressEvent(event)) onProgress();
+    });
   }
 
   markRunning(): void {
@@ -138,6 +141,17 @@ export class ChildSession {
         this.persistenceFailure = error instanceof Error ? error : new Error(String(error));
       });
   }
+}
+
+function isProgressEvent(event: AgentEvent): boolean {
+  return (
+    event.type === "user_message" ||
+    event.type === "assistant_message" ||
+    event.type === "tool_execution_start" ||
+    event.type === "tool_execution_end" ||
+    event.type === "tool_result" ||
+    event.type === "usage"
+  );
 }
 
 function messageForEvent(event: AgentEvent): Message | undefined {

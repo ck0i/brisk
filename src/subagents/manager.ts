@@ -260,7 +260,7 @@ export class SubagentManager {
           : { maxOutputTokens: session.input.maxOutputTokens }),
         stopWhen: () => completion.capture.result !== undefined,
       });
-      session.attach(loop);
+      session.attach(loop, () => this.publish(session));
       await loop.submit(session.input.description);
 
       if (session.controller.signal.aborted) {

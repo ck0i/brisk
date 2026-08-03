@@ -71,6 +71,16 @@ describe("RuntimeSubagents", () => {
       store,
     });
     const registry = new ToolRegistry().register(runtime.taskTool);
+    const progress: Array<{ status: string; transcriptLength: number }> = [];
+    const unsubscribe = store.subscribe((snapshot) => {
+      const agent = snapshot.agents[0];
+      if (agent) {
+        progress.push({
+          status: agent.status,
+          transcriptLength: agent.transcript?.length ?? 0,
+        });
+      }
+    });
 
     const [toolResult] = await registry.execute(
       [
@@ -105,6 +115,7 @@ describe("RuntimeSubagents", () => {
     expect((await session.repository.open(session.sessionId)).metadata.childRefs).toContainEqual(
       expect.objectContaining({ sessionId: childId, title: "Inspect parser" }),
     );
+    expect(progress).toContainEqual({ status: "running", transcriptLength: 1 });
     expect(store.snapshot.agents[0]).toMatchObject({
       childSessionId: childId,
       status: "completed",
@@ -114,6 +125,7 @@ describe("RuntimeSubagents", () => {
         { role: "assistant", content: "Completed child task in research mode." },
       ],
     });
+    unsubscribe();
     runtime.dispose();
     await session.close();
   });

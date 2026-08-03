@@ -1,8 +1,8 @@
 import { SyntaxStyle, type KeyBinding, type TextareaRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
-import { For, Show, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
-import type { UiMessage, UiStore } from "./state.ts";
+import type { UiApprovalDecision, UiApprovalPrompt, UiMessage, UiStore } from "./state.ts";
 
 const COLORS = {
   background: "#0b0d10",
@@ -73,6 +73,48 @@ function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
   );
 }
 
+function ApprovalOverlay(props: { approval: UiApprovalPrompt }) {
+  return (
+    <box
+      position="absolute"
+      top={0}
+      left={0}
+      width="100%"
+      height="100%"
+      zIndex={100}
+      alignItems="center"
+      justifyContent="center"
+    >
+      <box
+        width="72%"
+        maxWidth={84}
+        minWidth={44}
+        flexDirection="column"
+        border
+        borderColor={COLORS.warning}
+        backgroundColor={COLORS.surface}
+        paddingX={2}
+        paddingY={1}
+      >
+        <text fg={COLORS.warning}>
+          <strong>Approval required</strong> · {props.approval.toolName}
+        </text>
+        <text fg={COLORS.text}>{props.approval.summary}</text>
+        <Show when={props.approval.command}>
+          {(command: () => string) => <text fg={COLORS.muted}>command · {command()}</text>}
+        </Show>
+        <Show when={props.approval.targetPaths.length > 0}>
+          <text fg={COLORS.muted}>targets · {props.approval.targetPaths.join(", ")}</text>
+        </Show>
+        <text fg={COLORS.warning}>risk · {props.approval.riskDescription}</text>
+        <text fg={COLORS.text} marginTop={1}>
+          [A] approve once · [S] approve equivalent for session · [D/Esc] deny
+        </text>
+      </box>
+    </box>
+  );
+}
+
 function Conversation(props: { messages: readonly UiMessage[] }) {
   const syntaxStyle = SyntaxStyle.fromStyles({
     default: { fg: COLORS.text },
@@ -97,9 +139,17 @@ export function Root(props: RootProps) {
   const [composerLines, setComposerLines] = createSignal(1);
   let composer: TextareaRenderable | undefined;
   let submitting = false;
+  let approvalWasVisible = state().approval !== undefined;
 
   const unsubscribe = props.store.subscribe(setState);
   onCleanup(unsubscribe);
+
+  createEffect(() => {
+    const approvalVisible = state().approval !== undefined;
+    if (approvalVisible) composer?.blur();
+    else if (approvalWasVisible) queueMicrotask(() => composer?.focus());
+    approvalWasVisible = approvalVisible;
+  });
 
   const visibleMessages = createMemo(() => state().messages.slice(-100));
   const composerHeight = createMemo(() => Math.min(7, Math.max(3, composerLines() + 1)));
@@ -124,13 +174,26 @@ export function Root(props: RootProps) {
           // preserve the draft when submission fails
         } finally {
           submitting = false;
-          composer?.focus();
+          if (!props.store.snapshot.approval) composer?.focus();
         }
       }, 0);
     }, 0);
   };
 
+  const decideApproval = (decision: UiApprovalDecision): void => {
+    props.store.decideApproval(decision);
+  };
+
   useKeyboard((key) => {
+    if (state().approval) {
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.ctrl || key.meta) return;
+      if (key.name === "a") decideApproval("approve_once");
+      else if (key.name === "s") decideApproval("approve_session");
+      else if (key.name === "d" || key.name === "escape") decideApproval("deny");
+      return;
+    }
     if (key.name === "escape" && state().busy) {
       key.preventDefault();
       key.stopPropagation();
@@ -223,7 +286,9 @@ export function Root(props: RootProps) {
         <textarea
           ref={(node) => {
             composer = node;
-            queueMicrotask(() => node.focus());
+            queueMicrotask(() => {
+              if (!props.store.snapshot.approval) node.focus();
+            });
           }}
           focused
           flexGrow={1}
@@ -242,6 +307,10 @@ export function Root(props: RootProps) {
           onSubmit={submit}
         />
       </box>
+
+      <Show when={state().approval}>
+        {(approval: () => UiApprovalPrompt) => <ApprovalOverlay approval={approval()} />}
+      </Show>
     </box>
   );
 }

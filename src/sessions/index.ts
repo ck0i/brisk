@@ -1,3 +1,4 @@
+export * from "./agent-recorder.ts";
 export * from "./codec.ts";
 export * from "./repository.ts";
 export * from "./session-index.ts";

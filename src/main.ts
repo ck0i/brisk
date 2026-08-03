@@ -9,6 +9,7 @@ interface InteractiveController {
   submit(value: string, tui: import("./app.tsx").TuiRuntime): Promise<boolean>;
   abort(): void;
   openModelPicker(): Promise<void>;
+  openSessionPicker(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -61,6 +62,11 @@ async function main(): Promise<void> {
     await runModelsCommand(command, paths, loaded.config);
     return;
   }
+  if (command.name === "sessions") {
+    const { runSessionsCommand } = await import("./cli/session-commands.ts");
+    await runSessionsCommand(command, paths);
+    return;
+  }
   if (command.name !== "tui") {
     throw new Error(`${command.name} is not implemented yet`);
   }
@@ -94,11 +100,8 @@ async function main(): Promise<void> {
         else store.update({ status: "models loading" });
       },
       openSessions(store) {
-        store.addMessage({
-          id: crypto.randomUUID(),
-          role: "system",
-          content: "Session indexing is still loading.",
-        });
+        if (controller) void controller.openSessionPicker();
+        else store.update({ status: "sessions loading" });
       },
       async cleanup() {
         await controller?.close();

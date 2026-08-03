@@ -72,7 +72,7 @@ export class ProviderService {
   readonly credentials: ConfigCredentialResolver;
   private readonly listeners = new Set<ProviderServiceListener>();
   private readonly preferredModel: string | undefined;
-  private readonly sessionId: string | undefined;
+  private sessionId: string | undefined;
   private selectedValue: ModelSelection | undefined;
   private transportValue: PiAiProvider | undefined;
   private closed = false;
@@ -120,6 +120,12 @@ export class ProviderService {
 
   get provider(): PiAiProvider | undefined {
     return this.transportValue;
+  }
+
+  setSessionId(sessionId: string): void {
+    this.assertOpen();
+    this.sessionId = sessionId;
+    this.transportValue?.setSessionId(sessionId);
   }
 
   subscribe(listener: ProviderServiceListener): () => void {

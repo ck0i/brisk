@@ -51,7 +51,7 @@ export class PiAiProvider implements Provider {
   private currentModel: Model<Api>;
   private readonly auth: CredentialResolver;
   private readonly reasoning: Effort | undefined;
-  private readonly sessionId: string | undefined;
+  private sessionId: string | undefined;
   private readonly streamUpstream: PiStreamFunction;
   private readonly preconnect: (url: string) => void;
 
@@ -74,6 +74,10 @@ export class PiAiProvider implements Provider {
   setModel(model: Model<Api>): void {
     this.currentModel = model;
     this.preconnectBestEffort(model);
+  }
+
+  setSessionId(sessionId: string | undefined): void {
+    this.sessionId = sessionId;
   }
 
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {

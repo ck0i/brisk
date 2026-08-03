@@ -31,6 +31,7 @@ export interface ProviderRequest {
   readonly tools: readonly ProviderToolSchema[];
   readonly signal: AbortSignal;
   readonly model: string;
+  readonly sessionId?: string;
 }
 
 export interface Provider {

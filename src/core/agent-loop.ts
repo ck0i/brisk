@@ -208,6 +208,14 @@ export class AgentLoop {
     let usage: Usage | undefined;
     let started = false;
     let ended = false;
+    let upstreamIdentity:
+      | {
+          readonly provider?: string;
+          readonly api?: string;
+          readonly model?: string;
+          readonly timestamp?: number;
+        }
+      | undefined;
     const calls = new Map<number, ToolCallBuilder>();
 
     const events = this.provider.stream({
@@ -229,6 +237,12 @@ export class AgentLoop {
         case "response_start":
           if (started) throw invalidResponse("Provider emitted response_start more than once");
           started = true;
+          upstreamIdentity = {
+            ...(event.provider === undefined ? {} : { provider: event.provider }),
+            ...(event.api === undefined ? {} : { api: event.api }),
+            ...(event.model === undefined ? {} : { model: event.model }),
+            ...(event.timestamp === undefined ? {} : { timestamp: event.timestamp }),
+          };
           this.publish(event);
           break;
         case "text_delta":
@@ -303,6 +317,7 @@ export class AgentLoop {
       toolCalls,
       ...(thinking.length === 0 ? {} : { thinking }),
       ...(usage === undefined ? {} : { usage }),
+      ...upstreamIdentity,
     };
     return { assistant };
   }

@@ -71,6 +71,7 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
   renderer.once(CliRenderEvents.DESTROY, exit);
   renderer.on(CliRenderEvents.RENDER_ERROR, ({ error }: { error: Error }) => {
     store.update({ status: "render error", notice: error.message });
+    exit();
   });
 
   try {

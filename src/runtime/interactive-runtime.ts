@@ -870,5 +870,5 @@ function formatContextInspection(inspection: ContextInspection): string {
 }
 
 function helpText(): string {
-  return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: abort, then exit when idle\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n\n**Commands**\n\n\`/help\`, \`/model [provider/model]\`, \`/login [provider]\`, \`/logout [provider]\`, \`/new\`, \`/sessions\`, \`/resume\`, \`/compact\`, \`/context\`, \`/agents\`, \`/cost\`, \`/settings\`, \`/reload\`, \`/clear\`, \`/quit\``;
+  return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: abort, then exit when idle\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n\`/help\`, \`/model [provider/model]\`, \`/login [provider]\`, \`/logout [provider]\`, \`/new\`, \`/sessions\`, \`/resume\`, \`/compact\`, \`/context\`, \`/agents\`, \`/cost\`, \`/settings\`, \`/reload\`, \`/clear\`, \`/quit\``;
 }

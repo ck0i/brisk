@@ -449,12 +449,14 @@ export function Root(props: RootProps) {
     setTimeout(() => {
       setTimeout(async () => {
         try {
+          props.store.clearNotice();
           if (await props.onSubmit(value)) {
             composer?.clear();
             setComposerLines(1);
           }
-        } catch {
-          // preserve the draft when submission fails
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          props.store.update({ status: "error", notice: message });
         } finally {
           submitting = false;
           if (
@@ -606,6 +608,14 @@ export function Root(props: RootProps) {
               .join("  ")}
           </text>
         </box>
+      </Show>
+
+      <Show when={state().notice}>
+        {(notice: () => string) => (
+          <box minHeight={1} maxHeight={3} flexShrink={0} paddingX={1} width="100%">
+            <text fg={COLORS.error}>error · {notice()}</text>
+          </box>
+        )}
       </Show>
 
       <box height={1} flexShrink={0} paddingX={1} backgroundColor={COLORS.surface} width="100%">

@@ -52,6 +52,34 @@ test("conversation disclosures expand thinking and tool diffs from the keyboard"
   }
 });
 
+test("submission errors remain visible and preserve the composer draft", async () => {
+  const store = new UiStore("fixture");
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={() => {
+          throw new Error("local command failed");
+        }}
+        onAbort={() => {}}
+        onExit={() => {}}
+      />
+    ),
+    { width: 90, height: 22 },
+  );
+  try {
+    await setup.renderOnce();
+    await setup.mockInput.typeText("keep this draft");
+    setup.mockInput.pressEnter();
+    const frame = await setup.waitForFrame((value) => value.includes("local command failed"));
+    expect(frame).toContain("error · local command failed");
+    expect(frame).toContain("keep this draft");
+    expect(store.snapshot.status).toBe("error");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("long conversations mount a bounded window and PageUp expands it", async () => {
   const store = new UiStore("fixture");
   for (let index = 0; index < 230; index += 1) {

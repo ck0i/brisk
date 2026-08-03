@@ -174,6 +174,12 @@ export class UiStore {
     this.publish({ ...this.current, messages: [] });
   }
 
+  clearNotice(): void {
+    if (this.current.notice === undefined) return;
+    const { notice: _notice, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
   toggleLatestDisclosure(): boolean {
     const messages = [...this.current.messages];
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {

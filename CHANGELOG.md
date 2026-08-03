@@ -4,6 +4,10 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Added
+
+- Cross-platform global-install setup that idempotently persists the package manager's binary directory in Bash, Zsh, Fish, or the Windows user `PATH`.
+
 ## [0.1.0] - 2026-08-03
 
 ### Added

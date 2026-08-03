@@ -25,6 +25,7 @@
   "files": [
     "src",
     "docs",
+    "scripts/install-path.ts",
     "bunfig.toml",
     "tsconfig.json",
     "README.md",
@@ -36,6 +37,7 @@
   ],
   "scripts": {
     "dev": "bun src/main.ts",
+    "postinstall": "bun scripts/install-path.ts --package-install",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings src tests scripts",
     "format": "prettier --write .",

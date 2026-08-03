@@ -17,9 +17,12 @@ Standalone release directories include Bun and the native runtime assets. Keep t
 The package is named `brisk-ai`; its executable is `brisk`.
 
 ```sh
-bun add --global brisk-ai
+bun add --global --trust brisk-ai
+# open a new terminal, then:
 brisk version
 ```
+
+The trusted postinstall only locates the package manager's global binary directory and adds it idempotently to the current user's persistent `PATH`. It updates Bash, Zsh, or Fish startup files on Linux and macOS, and the user environment on Windows. Existing `PATH` entries are left unchanged. Bun blocks dependency lifecycle scripts unless `--trust` is supplied, so that flag is required for automatic setup.
 
 Uninstall it with:
 
@@ -27,7 +30,7 @@ Uninstall it with:
 bun remove --global brisk-ai
 ```
 
-The published executable entry is the Bun-shebang TypeScript file declared in `package.json`. Node alone is not a supported runtime for this package.
+The shared package-manager binary directory remains in `PATH` because other global packages may use it. The published executable entry is the Bun-shebang TypeScript file declared in `package.json`. Node alone is not a supported runtime for this package.
 
 ### Standalone release
 

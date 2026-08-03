@@ -16,13 +16,15 @@ Add `--json` to the status/list/doctor commands when collecting machine-readable
 
 ### `brisk: command not found`
 
-For the npm installation, confirm Bun's global binary directory is on `PATH`:
+The global package install adds Bun's binary directory to the persistent user `PATH`. Open a new terminal after installation. Confirm the expected directory with:
 
 ```sh
 bun pm bin -g
 ```
 
-Reinstall with `bun add --global brisk-ai`. For a standalone release, put the extracted release directory on `PATH` or link the executable from it. On POSIX, confirm the executable bit is present.
+If the install was run without lifecycle-script trust, rerun it with `bun add --global --trust brisk-ai`, or run `bun pm -g trust brisk-ai` for the existing global installation. The installer updates Bash, Zsh, or Fish startup files on Linux/macOS and the Windows user environment without duplicating an existing entry.
+
+For a standalone release, put the extracted release directory on `PATH` or link the executable from it. On POSIX, confirm the executable bit is present.
 
 ### The npm package opens under Node and fails
 

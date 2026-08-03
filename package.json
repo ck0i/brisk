@@ -1,0 +1,58 @@
+{
+  "name": "brisk-ai",
+  "version": "0.1.0",
+  "description": "A fast, provider-agnostic terminal coding harness",
+  "type": "module",
+  "license": "MIT",
+  "author": "Nick Tolhurst",
+  "engines": {
+    "bun": ">=1.3.14"
+  },
+  "packageManager": "bun@1.3.14",
+  "bin": {
+    "brisk": "src/main.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "ARCHITECTURE.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "dev": "bun src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --deny-warnings src tests scripts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "bun test",
+    "test:e2e": "bun test tests/e2e",
+    "bench": "bun src/main.ts bench",
+    "build": "bun scripts/build.ts",
+    "verify": "bun run typecheck && bun run lint && bun test && bun run test:e2e"
+  },
+  "dependencies": {
+    "@oh-my-pi/hashline": "17.2.6",
+    "@oh-my-pi/pi-ai": "17.2.6",
+    "@oh-my-pi/pi-catalog": "17.2.6",
+    "@oh-my-pi/snapcompact": "17.2.6",
+    "@opentui/core": "0.5.0",
+    "@opentui/solid": "0.5.0",
+    "diff": "8.0.3",
+    "jsonc-parser": "3.3.1",
+    "solid-js": "1.9.12",
+    "web-tree-sitter": "0.25.10",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/diff": "8.0.0",
+    "oxlint": "1.77.0",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2"
+  },
+  "trustedDependencies": [
+    "@oh-my-pi/pi-natives"
+  ]
+}

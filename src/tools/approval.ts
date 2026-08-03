@@ -14,6 +14,7 @@ export interface ApprovalRequest {
   readonly toolName: string;
   readonly summary: string;
   readonly command?: string;
+  readonly diff?: string;
   readonly targetPaths: readonly string[];
   readonly riskDescription: string;
   readonly equivalenceKey: string;
@@ -27,6 +28,7 @@ export interface ToolPermissionRequest {
   readonly toolName: string;
   readonly summary: string;
   readonly command?: string;
+  readonly diff?: string;
   readonly targetPaths?: readonly string[];
   readonly mutatesPaths?: boolean;
   readonly taskPermission?: TaskPermission;
@@ -140,6 +142,7 @@ export class PermissionManager {
     const toolName = redact(request.toolName.toLowerCase());
     const summary = concise(redact(request.summary));
     const command = request.command === undefined ? undefined : redact(request.command);
+    const diff = request.diff === undefined ? undefined : redact(request.diff);
     const targetPaths = (request.targetPaths ?? []).map(redact);
     const risk = redact(riskDescription);
     const canonicalEquivalence = JSON.stringify({
@@ -156,6 +159,7 @@ export class PermissionManager {
       toolName,
       summary,
       ...(command === undefined ? {} : { command }),
+      ...(diff === undefined ? {} : { diff }),
       targetPaths,
       riskDescription: risk,
       equivalenceKey,

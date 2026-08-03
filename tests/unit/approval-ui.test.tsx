@@ -38,6 +38,8 @@ test("approval overlay renders details, traps keys, and resolves keyboard decisi
     expect(frame).toContain("command · git status --short");
     expect(frame).toContain("targets · src/file.ts");
     expect(frame).toContain("risk · Runs a shell command.");
+    expect(frame).toContain("old value");
+    expect(frame).toContain("new value");
     expect(frame).toContain("[A] approve once");
 
     setup.mockInput.pressKey("a");
@@ -71,6 +73,7 @@ function request(summary: string): ApprovalRequest {
     toolName: "bash",
     summary,
     command: "git status --short",
+    diff: "--- a/src/file.ts\n+++ b/src/file.ts\n@@ -1 +1 @@\n-old value\n+new value\n",
     targetPaths: ["src/file.ts"],
     riskDescription: "Runs a shell command.",
     equivalenceKey: `bash:${summary}`,

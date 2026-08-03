@@ -165,6 +165,10 @@ export function createBashTool(
       const result = await runBash(workspace, artifacts, input, {
         ...options,
         signal: context.signal,
+        async onOutput(event) {
+          context.emitOutput(event.stream, event.data);
+          await options.onOutput?.(event);
+        },
       });
       const status = [
         `exit=${result.exitCode ?? "null"}`,

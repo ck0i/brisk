@@ -16,9 +16,12 @@ import {
   splitModelSpecifier,
   type ModelSelection,
 } from "../providers/provider-service.ts";
+import { registerCodingTools } from "../tools/coding-tools.ts";
+import { cleanupToolProcesses } from "../tools/process-registry.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import type { TuiRuntime } from "../app.tsx";
 import { AgentUiController } from "../ui/agent-controller.ts";
+import { UiApprovalController } from "../ui/approval-controller.ts";
 import { UiStore } from "../ui/state.ts";
 
 export type TuiCommand = Extract<CliCommand, { readonly name: "tui" }>;
@@ -35,6 +38,7 @@ export class InteractiveRuntime {
   private providerService: ProviderService | undefined;
   private controller: AgentUiController | undefined;
   private readonly tools = new ToolRegistry();
+  private readonly approvalController: UiApprovalController;
   private closed = false;
 
   private constructor(
@@ -45,6 +49,7 @@ export class InteractiveRuntime {
   ) {
     this.paths = paths;
     this.configManager = configManager;
+    this.approvalController = new UiApprovalController(store);
   }
 
   static async initialize(
@@ -73,9 +78,15 @@ export class InteractiveRuntime {
     runtime.applyConfigToUi();
     runtime.showConfigWarnings();
 
-    if (options.command.fakeProvider) runtime.initializeFakeProvider();
-    else await runtime.initializeProviderService();
-    return runtime;
+    try {
+      await runtime.initializeCodingTools();
+      if (options.command.fakeProvider) runtime.initializeFakeProvider();
+      else await runtime.initializeProviderService();
+      return runtime;
+    } catch (error) {
+      await runtime.close();
+      throw error;
+    }
   }
 
   async submit(value: string, tui: TuiRuntime): Promise<boolean> {
@@ -117,11 +128,23 @@ export class InteractiveRuntime {
     );
   }
 
-  close(): void {
+  async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.controller?.cancel();
     this.controller?.dispose();
+    this.approvalController.dispose();
     this.providerService?.close();
+    await cleanupToolProcesses();
+  }
+
+  private async initializeCodingTools(): Promise<void> {
+    await registerCodingTools(this.tools, {
+      workspace: this.options.workspace,
+      artifactsDirectory: `${this.paths.artifactsDir}/${crypto.randomUUID()}`,
+      permissionMode: this.configManager.current.permissionMode,
+      approvalHandler: this.approvalController,
+    });
   }
 
   private async initializeProviderService(): Promise<void> {

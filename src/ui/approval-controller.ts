@@ -96,6 +96,7 @@ export class UiApprovalController implements ApprovalHandler {
       toolName: item.request.toolName,
       summary: item.request.summary,
       ...(item.request.command === undefined ? {} : { command: item.request.command }),
+      ...(item.request.diff === undefined ? {} : { diff: item.request.diff }),
       targetPaths: [...item.request.targetPaths],
       riskDescription: item.request.riskDescription,
       equivalenceKey: item.request.equivalenceKey,

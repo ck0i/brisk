@@ -9,7 +9,7 @@ interface InteractiveController {
   submit(value: string, tui: import("./app.tsx").TuiRuntime): Promise<boolean>;
   abort(): void;
   showModels(): void;
-  close(): void;
+  close(): Promise<void>;
 }
 
 function printHelp(): void {
@@ -100,14 +100,20 @@ async function main(): Promise<void> {
           content: "Session indexing is still loading.",
         });
       },
-      cleanup() {
-        controller?.close();
+      async cleanup() {
+        await controller?.close();
       },
     },
   });
 }
 
-await main().catch((error: unknown) => {
+await main().catch(async (error: unknown) => {
+  try {
+    const { cleanupToolProcesses } = await import("./tools/process-registry.ts");
+    await cleanupToolProcesses();
+  } catch {
+    // Preserve the primary failure; process cleanup is best effort here.
+  }
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`brisk: ${message}\n`);
   process.exitCode = 1;

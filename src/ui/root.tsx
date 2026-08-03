@@ -106,6 +106,20 @@ function ApprovalOverlay(props: { approval: UiApprovalPrompt }) {
         <Show when={props.approval.targetPaths.length > 0}>
           <text fg={COLORS.muted}>targets · {props.approval.targetPaths.join(", ")}</text>
         </Show>
+        <Show when={props.approval.diff}>
+          {(diff: () => string) => (
+            <diff
+              diff={diff()}
+              view="unified"
+              wrapMode="char"
+              showLineNumbers
+              height={12}
+              width="100%"
+              addedBg="#173b2a"
+              removedBg="#4a2026"
+            />
+          )}
+        </Show>
         <text fg={COLORS.warning}>risk · {props.approval.riskDescription}</text>
         <text fg={COLORS.text} marginTop={1}>
           [A] approve once · [S] approve equivalent for session · [D/Esc] deny

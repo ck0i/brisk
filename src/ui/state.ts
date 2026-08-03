@@ -33,6 +33,7 @@ export interface UiApprovalPrompt {
   toolName: string;
   summary: string;
   command?: string;
+  diff?: string;
   targetPaths: readonly string[];
   riskDescription: string;
   equivalenceKey: string;

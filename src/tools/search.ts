@@ -139,6 +139,10 @@ export function createSearchTool(
       const result = await searchWorkspace(workspace, input, {
         ...options,
         signal: context.signal,
+        async onOutput(event) {
+          context.emitOutput(event.stream, event.data);
+          await options.onOutput?.(event);
+        },
       });
       return { content: formatSearchResult(result) };
     },

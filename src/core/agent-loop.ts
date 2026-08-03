@@ -42,6 +42,8 @@ export interface AgentLoopOptions {
   readonly initialMessages?: readonly Message[];
   readonly initialUsage?: Usage;
   readonly contextLifecycle?: AgentContextLifecycle;
+  /** Stop after appending the current tool results when the callback returns true. */
+  readonly stopWhen?: () => boolean;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
@@ -70,6 +72,7 @@ export class AgentLoop {
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
   private readonly contextLifecycle: AgentContextLifecycle | undefined;
+  private readonly stopWhen: (() => boolean) | undefined;
   private readonly history: Message[];
   private readonly listeners = new Set<AgentEventListener>();
   private readonly pending: PendingTurn[] = [];
@@ -84,6 +87,7 @@ export class AgentLoop {
     this.history = [...(options.initialMessages ?? [])];
     this.accumulatedUsage = options.initialUsage ?? { inputTokens: 0, outputTokens: 0 };
     this.contextLifecycle = options.contextLifecycle;
+    this.stopWhen = options.stopWhen;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 50;
     if (!Number.isInteger(this.maxRetries) || this.maxRetries < 0) {
@@ -229,6 +233,7 @@ export class AgentLoop {
           this.history.push(result);
           this.publish({ type: "tool_result", message: result });
         }
+        if (this.stopWhen?.() === true) return;
       } catch (error) {
         this.history.splice(historyStart);
         throw error;

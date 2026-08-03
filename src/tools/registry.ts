@@ -2,10 +2,19 @@ import { isAbortError } from "../core/events.ts";
 import type { JsonValue, ToolCall, ToolResultMessage } from "../core/messages.ts";
 import type { JsonSchema, ProviderToolSchema } from "../providers/types.ts";
 
+export type ToolOutputStream = "stdout" | "stderr" | "progress";
+
 export interface ToolContext {
   readonly signal: AbortSignal;
   readonly callId: string;
   readonly toolName: string;
+  emitOutput(stream: ToolOutputStream, delta: string): void;
+}
+
+export interface ToolExecutionObserver {
+  onStart?(call: ToolCall): void;
+  onOutput?(call: ToolCall, stream: ToolOutputStream, delta: string): void;
+  onEnd?(call: ToolCall, result: ToolResultMessage): void;
 }
 
 export interface ToolResult {
@@ -78,7 +87,11 @@ export class ToolRegistry {
     return [...this.tools.values()].map((tool) => tool.schema);
   }
 
-  async execute(calls: readonly ToolCall[], signal: AbortSignal): Promise<ToolResultMessage[]> {
+  async execute(
+    calls: readonly ToolCall[],
+    signal: AbortSignal,
+    observer: ToolExecutionObserver = {},
+  ): Promise<ToolResultMessage[]> {
     throwIfAborted(signal);
     const results = Array.from<ToolResultMessage | undefined>({ length: calls.length });
 
@@ -99,7 +112,7 @@ export class ToolRegistry {
           if (parallelTool?.concurrent !== true) break;
           const resultIndex = index;
           pending.push(
-            this.executeOne(parallelCall, parallelTool, signal).then((result) => {
+            this.executeOne(parallelCall, parallelTool, signal, observer).then((result) => {
               results[resultIndex] = result;
             }),
           );
@@ -108,7 +121,7 @@ export class ToolRegistry {
         if (index === start) index += 1;
         await Promise.all(pending);
       } else {
-        results[index] = await this.executeOne(call, tool, signal);
+        results[index] = await this.executeOne(call, tool, signal, observer);
         index += 1;
       }
     }
@@ -126,9 +139,15 @@ export class ToolRegistry {
     call: ToolCall,
     tool: StoredTool | undefined,
     signal: AbortSignal,
+    observer: ToolExecutionObserver,
   ): Promise<ToolResultMessage> {
     throwIfAborted(signal);
-    if (!tool) return errorResult(call, `Unknown tool: ${call.name}`);
+    notifyObserver(() => observer.onStart?.(call));
+    const finish = (result: ToolResultMessage): ToolResultMessage => {
+      notifyObserver(() => observer.onEnd?.(call, result));
+      return result;
+    };
+    if (!tool) return finish(errorResult(call, `Unknown tool: ${call.name}`));
 
     let parsed: JsonValue;
     try {
@@ -138,7 +157,9 @@ export class ToolRegistry {
       if (validationError) throw new Error(validationError);
       parsed = value;
     } catch (error) {
-      return errorResult(call, `Invalid arguments for ${call.name}: ${errorMessage(error)}`);
+      return finish(
+        errorResult(call, `Invalid arguments for ${call.name}: ${errorMessage(error)}`),
+      );
     }
 
     const controller = new AbortController();
@@ -151,30 +172,35 @@ export class ToolRegistry {
           signal: controller.signal,
           callId: call.id,
           toolName: call.name,
+          emitOutput(stream, delta) {
+            if (!controller.signal.aborted && delta.length > 0) {
+              notifyObserver(() => observer.onOutput?.(call, stream, delta));
+            }
+          },
         }),
         tool.timeoutMs,
         controller,
         signal,
       );
       throwIfAborted(signal);
-      return {
+      return finish({
         role: "tool",
         toolCallId: call.id,
         name: call.name,
         content: result.content,
         ...(result.isError === undefined ? {} : { isError: result.isError }),
-      };
+      });
     } catch (error) {
       if (signal.aborted || isAbortError(error)) {
         if (signal.aborted) throw abortReason(signal);
       }
       if (error instanceof ToolTimeoutError) {
-        return errorResult(call, `Tool ${call.name} timed out after ${tool.timeoutMs}ms`);
+        return finish(errorResult(call, `Tool ${call.name} timed out after ${tool.timeoutMs}ms`));
       }
       if (error instanceof ToolArgumentError) {
-        return errorResult(call, `Invalid arguments for ${call.name}: ${error.message}`);
+        return finish(errorResult(call, `Invalid arguments for ${call.name}: ${error.message}`));
       }
-      return errorResult(call, `Tool ${call.name} failed: ${errorMessage(error)}`);
+      return finish(errorResult(call, `Tool ${call.name} failed: ${errorMessage(error)}`));
     } finally {
       signal.removeEventListener("abort", abortTool);
     }
@@ -346,6 +372,14 @@ function errorResult(call: ToolCall, content: string): ToolResultMessage {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function notifyObserver(callback: () => void): void {
+  try {
+    callback();
+  } catch {
+    // Observability must never change tool execution semantics.
+  }
 }
 
 function abortReason(signal: AbortSignal): unknown {

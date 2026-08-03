@@ -137,6 +137,49 @@ export class AgentUiController {
           });
           break;
         }
+        case "tool_execution_start": {
+          const ownerIndex = findToolOwner(messages, event.id);
+          const owner = messages[ownerIndex];
+          const card = owner?.tools?.find((candidate) => candidate.id === event.id);
+          if (!owner || !card) break;
+          messages[ownerIndex] = {
+            ...owner,
+            tools: upsertCard(owner.tools, { ...card, status: "running" }),
+          };
+          status = `tool · ${event.name}`;
+          break;
+        }
+        case "tool_execution_output": {
+          const ownerIndex = findToolOwner(messages, event.id);
+          const owner = messages[ownerIndex];
+          const card = owner?.tools?.find((candidate) => candidate.id === event.id);
+          if (!owner || !card) break;
+          const output = `${card.output ?? ""}${event.delta}`.slice(-4_000);
+          messages[ownerIndex] = {
+            ...owner,
+            tools: upsertCard(owner.tools, {
+              ...card,
+              status: "running",
+              output,
+              summary: summarize(output),
+            }),
+          };
+          break;
+        }
+        case "tool_execution_end": {
+          const ownerIndex = findToolOwner(messages, event.id);
+          const owner = messages[ownerIndex];
+          const card = owner?.tools?.find((candidate) => candidate.id === event.id);
+          if (!owner || !card) break;
+          messages[ownerIndex] = {
+            ...owner,
+            tools: upsertCard(owner.tools, {
+              ...card,
+              status: event.isError ? "failed" : "completed",
+            }),
+          };
+          break;
+        }
         case "tool_result": {
           const ownerIndex = findToolOwner(messages, event.message.toolCallId);
           const owner = messages[ownerIndex];

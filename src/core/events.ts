@@ -93,6 +93,24 @@ export type AgentEvent =
   | ProviderEvent
   | { readonly type: "user_message"; readonly message: UserMessage }
   | { readonly type: "assistant_message"; readonly message: AssistantMessage }
+  | {
+      readonly type: "tool_execution_start";
+      readonly id: string;
+      readonly name: string;
+    }
+  | {
+      readonly type: "tool_execution_output";
+      readonly id: string;
+      readonly name: string;
+      readonly stream: "stdout" | "stderr" | "progress";
+      readonly delta: string;
+    }
+  | {
+      readonly type: "tool_execution_end";
+      readonly id: string;
+      readonly name: string;
+      readonly isError: boolean;
+    }
   | { readonly type: "tool_result"; readonly message: ToolResultMessage }
   | { readonly type: "cancelled" }
   | { readonly type: "idle" };

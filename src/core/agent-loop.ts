@@ -168,7 +168,28 @@ export class AgentLoop {
       if (assistant.toolCalls.length === 0) return;
 
       try {
-        const results = await this.tools.execute(assistant.toolCalls, signal);
+        const results = await this.tools.execute(assistant.toolCalls, signal, {
+          onStart: (call) => {
+            this.publish({ type: "tool_execution_start", id: call.id, name: call.name });
+          },
+          onOutput: (call, stream, delta) => {
+            this.publish({
+              type: "tool_execution_output",
+              id: call.id,
+              name: call.name,
+              stream,
+              delta,
+            });
+          },
+          onEnd: (call, result) => {
+            this.publish({
+              type: "tool_execution_end",
+              id: call.id,
+              name: call.name,
+              isError: result.isError ?? false,
+            });
+          },
+        });
         throwIfAborted(signal);
         for (const result of results) {
           throwIfAborted(signal);

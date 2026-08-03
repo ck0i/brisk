@@ -100,6 +100,39 @@ describe("ToolRegistry", () => {
     expect(trace.indexOf("start:r3")).toBeGreaterThan(trace.indexOf("end:w"));
   });
 
+  test("streams lifecycle and output events without changing ordered results", async () => {
+    const registry = new ToolRegistry();
+    const events: string[] = [];
+    registry.register<DelayArguments>({
+      name: "stream",
+      description: "stream output",
+      inputSchema: delaySchema,
+      parse: parseDelayArguments,
+      execute(arguments_, context) {
+        context.emitOutput("stdout", "first");
+        context.emitOutput("stderr", "second");
+        return { content: arguments_.label };
+      },
+    });
+    const [result] = await registry.execute(
+      [{ id: "stream-1", name: "stream", arguments: '{"label":"done","delayMs":0}' }],
+      new AbortController().signal,
+      {
+        onStart: (call) => events.push(`start:${call.id}`),
+        onOutput: (_call, stream, delta) => events.push(`${stream}:${delta}`),
+        onEnd: (call, completed) => events.push(`end:${call.id}:${completed.content}`),
+      },
+    );
+
+    expect(result?.content).toBe("done");
+    expect(events).toEqual([
+      "start:stream-1",
+      "stdout:first",
+      "stderr:second",
+      "end:stream-1:done",
+    ]);
+  });
+
   test("returns useful invalid argument, unknown tool, and timeout results", async () => {
     const registry = new ToolRegistry(10);
     let executions = 0;

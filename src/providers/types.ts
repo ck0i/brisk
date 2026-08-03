@@ -32,6 +32,7 @@ export interface ProviderRequest {
   readonly signal: AbortSignal;
   readonly model: string;
   readonly sessionId?: string;
+  readonly maxOutputTokens?: number;
 }
 
 export interface Provider {

@@ -78,6 +78,8 @@ describe("SubagentManager execution", () => {
     ]);
     expect(sessions[1]?.model).toBe("patch-model");
     expect(sessions[2]?.maxOutputTokens).toBe(77);
+    expect(providers.get("child-1")?.requests[0]?.maxOutputTokens).toBeUndefined();
+    expect(providers.get("child-3")?.requests[0]?.maxOutputTokens).toBe(77);
     expect(sessions[0]?.usage).toEqual({ inputTokens: 10, outputTokens: 2 });
 
     const sharedCheckpoint = manager.getCheckpoint("child-1");

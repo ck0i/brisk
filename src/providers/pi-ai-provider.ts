@@ -99,6 +99,7 @@ export class PiAiProvider implements Provider {
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(this.reasoning === undefined ? {} : { reasoning: this.reasoning }),
         ...(sessionId === undefined ? {} : { sessionId }),
+        ...(request.maxOutputTokens === undefined ? {} : { maxTokens: request.maxOutputTokens }),
       };
       const upstream = this.streamUpstream(model, context, options);
       for await (const event of upstream) {

@@ -197,7 +197,10 @@ describe("PiAiProvider stream adapter", () => {
       },
     });
 
-    const first = await collect(provider, request("model-one"));
+    const first = await collect(provider, {
+      ...request("model-one"),
+      maxOutputTokens: 42,
+    });
     const secondModel = makeModel("provider-two", "model-two", "https://two.test/v1");
     provider.setModel(secondModel);
     const second = await collect(provider, request("model-two"));
@@ -214,7 +217,11 @@ describe("PiAiProvider stream adapter", () => {
       { provider: "provider-one", sessionId: "session-test", modelId: "model-one" },
       { provider: "provider-two", sessionId: "session-test", modelId: "model-two" },
     ]);
-    expect(captures[0]?.options).toMatchObject({ apiKey, sessionId: "session-test" });
+    expect(captures[0]?.options).toMatchObject({
+      apiKey,
+      sessionId: "session-test",
+      maxTokens: 42,
+    });
     expect(captures[1]?.model.id).toBe("model-two");
     expect(provider.model).toBe(secondModel);
     expect(warmed).toEqual(["https://one.test/v1", "https://two.test/v1"]);

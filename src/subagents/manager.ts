@@ -250,6 +250,9 @@ export class SubagentManager {
         model: session.model,
         tools,
         contextLifecycle: checkpointLifecycle(session.checkpoint),
+        ...(session.input.maxOutputTokens === undefined
+          ? {}
+          : { maxOutputTokens: session.input.maxOutputTokens }),
         stopWhen: () => completion.capture.result !== undefined,
       });
       session.attach(loop);

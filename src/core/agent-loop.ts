@@ -42,6 +42,7 @@ export interface AgentLoopOptions {
   readonly initialMessages?: readonly Message[];
   readonly initialUsage?: Usage;
   readonly contextLifecycle?: AgentContextLifecycle;
+  readonly maxOutputTokens?: number;
   /** Stop after appending the current tool results when the callback returns true. */
   readonly stopWhen?: () => boolean;
 }
@@ -72,6 +73,7 @@ export class AgentLoop {
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
   private readonly contextLifecycle: AgentContextLifecycle | undefined;
+  private readonly maxOutputTokens: number | undefined;
   private readonly stopWhen: (() => boolean) | undefined;
   private readonly history: Message[];
   private readonly listeners = new Set<AgentEventListener>();
@@ -87,6 +89,7 @@ export class AgentLoop {
     this.history = [...(options.initialMessages ?? [])];
     this.accumulatedUsage = options.initialUsage ?? { inputTokens: 0, outputTokens: 0 };
     this.contextLifecycle = options.contextLifecycle;
+    this.maxOutputTokens = options.maxOutputTokens;
     this.stopWhen = options.stopWhen;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 50;
@@ -95,6 +98,12 @@ export class AgentLoop {
     }
     if (!Number.isFinite(this.retryDelayMs) || this.retryDelayMs < 0) {
       throw new RangeError("retryDelayMs must be a non-negative finite number");
+    }
+    if (
+      this.maxOutputTokens !== undefined &&
+      (!Number.isSafeInteger(this.maxOutputTokens) || this.maxOutputTokens <= 0)
+    ) {
+      throw new RangeError("maxOutputTokens must be a positive integer");
     }
   }
 
@@ -300,6 +309,7 @@ export class AgentLoop {
       tools: this.tools.schemas,
       signal,
       model: this.model,
+      ...(this.maxOutputTokens === undefined ? {} : { maxOutputTokens: this.maxOutputTokens }),
     });
 
     for await (const event of events) {

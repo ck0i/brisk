@@ -15,7 +15,7 @@ interface InteractiveController {
 
 function printHelp(): void {
   process.stdout.write(
-    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor\n  brisk bench [--json]\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
+    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor [--json]\n  brisk bench [--json]\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
   );
 }
 
@@ -68,10 +68,11 @@ async function main(): Promise<void> {
     await runSessionsCommand(command, paths);
     return;
   }
-  if (command.name !== "tui") {
-    throw new Error(`${command.name} is not implemented yet`);
+  if (command.name === "doctor") {
+    const { runDoctorCommand } = await import("./cli/doctor-command.ts");
+    await runDoctorCommand(command, paths);
+    return;
   }
-
   const { basename, resolve } = await import("node:path");
   const workspace = resolve(command.directory);
   const { launchTui } = await import("./app.tsx");

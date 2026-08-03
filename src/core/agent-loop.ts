@@ -23,6 +23,8 @@ export interface AgentLoopOptions {
   /** number of retries after the initial request */
   readonly maxRetries?: number;
   readonly retryDelayMs?: number;
+  readonly initialMessages?: readonly Message[];
+  readonly initialUsage?: Usage;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
@@ -46,21 +48,23 @@ interface CollectedResponse {
 
 export class AgentLoop {
   private readonly provider: Provider;
-  private readonly model: string;
+  private model: string;
   private readonly tools: ToolRegistry;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
-  private readonly history: Message[] = [];
+  private readonly history: Message[];
   private readonly listeners = new Set<AgentEventListener>();
   private readonly pending: PendingTurn[] = [];
   private activeController: AbortController | undefined;
   private draining = false;
-  private accumulatedUsage: Usage = { inputTokens: 0, outputTokens: 0 };
+  private accumulatedUsage: Usage;
 
   constructor(options: AgentLoopOptions) {
     this.provider = options.provider;
     this.model = options.model;
     this.tools = options.tools ?? new ToolRegistry();
+    this.history = [...(options.initialMessages ?? [])];
+    this.accumulatedUsage = options.initialUsage ?? { inputTokens: 0, outputTokens: 0 };
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 50;
     if (!Number.isInteger(this.maxRetries) || this.maxRetries < 0) {
@@ -81,6 +85,15 @@ export class AgentLoop {
 
   get active(): boolean {
     return this.activeController !== undefined;
+  }
+
+  get modelId(): string {
+    return this.model;
+  }
+
+  setModel(model: string): void {
+    if (model.length === 0) throw new TypeError("Model cannot be empty");
+    this.model = model;
   }
 
   subscribe(listener: AgentEventListener): () => void {

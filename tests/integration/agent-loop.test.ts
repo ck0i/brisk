@@ -14,6 +14,32 @@ const valueSchema = {
 };
 
 describe("AgentLoop streaming and tools", () => {
+  test("hydrates prior messages and usage and supports model changes between turns", async () => {
+    const provider = new FakeProvider([
+      { text: "continued", usage: { inputTokens: 3, outputTokens: 2 } },
+    ]);
+    const loop = new AgentLoop({
+      provider,
+      model: "fake/old",
+      initialMessages: [
+        { role: "user", content: "prior question" },
+        { role: "assistant", content: "prior answer", toolCalls: [] },
+      ],
+      initialUsage: { inputTokens: 10, outputTokens: 5, cost: 0.1 },
+    });
+
+    loop.setModel("fake/new");
+    await loop.submit("continue");
+
+    expect(loop.modelId).toBe("fake/new");
+    expect(provider.requests[0]?.model).toBe("fake/new");
+    expect(provider.requests[0]?.messages.slice(0, 2)).toEqual([
+      { role: "user", content: "prior question" },
+      { role: "assistant", content: "prior answer", toolCalls: [] },
+    ]);
+    expect(loop.usage).toEqual({ inputTokens: 13, outputTokens: 7, cost: 0.1 });
+  });
+
   test("assembles partial arguments and streams thinking, text, tools, and usage", async () => {
     const provider = new FakeProvider([
       {

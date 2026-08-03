@@ -5,6 +5,37 @@ import { testRender } from "@opentui/solid";
 import { Root } from "../../src/ui/root.tsx";
 import { UiStore } from "../../src/ui/state.ts";
 
+test("first render focuses the multiline composer and accepts a large paste", async () => {
+  const store = new UiStore("fixture");
+  const submissions: string[] = [];
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={(value) => {
+          submissions.push(value);
+          return true;
+        }}
+        onAbort={() => {}}
+        onExit={() => {}}
+      />
+    ),
+    { width: 90, height: 24 },
+  );
+  try {
+    const frame = await setup.renderOnce().then(() => setup.captureCharFrame());
+    expect(frame).toContain("Brisk · fixture");
+    expect(setup.renderer.currentFocusedEditor).not.toBeNull();
+    const prompt = Array.from({ length: 80 }, (_, index) => `line ${index}`).join("\n");
+    await setup.mockInput.pasteBracketedText(prompt);
+    setup.mockInput.pressEnter();
+    await setup.waitFor(() => submissions.length === 1);
+    expect(submissions).toEqual([prompt]);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("conversation disclosures expand thinking and tool diffs from the keyboard", async () => {
   const store = new UiStore("fixture");
   store.addMessage({

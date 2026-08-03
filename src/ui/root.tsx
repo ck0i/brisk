@@ -3,6 +3,9 @@ import { useKeyboard } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import type {
+  UiAgentIndicator,
+  UiAgentPanelState,
+  UiAgentStatus,
   UiApprovalDecision,
   UiApprovalPrompt,
   UiMessage,
@@ -197,6 +200,148 @@ function PickerOverlay(props: { picker: UiPickerPrompt }) {
   );
 }
 
+function agentStatusIcon(status: UiAgentStatus): string {
+  switch (status) {
+    case "running":
+      return "◐";
+    case "completed":
+      return "✓";
+    case "blocked":
+      return "!";
+    case "failed":
+      return "×";
+    case "cancelled":
+      return "–";
+    case "queued":
+      return "·";
+  }
+}
+
+function agentStatusColor(status: UiAgentStatus): string {
+  switch (status) {
+    case "completed":
+      return COLORS.success;
+    case "blocked":
+    case "queued":
+      return COLORS.warning;
+    case "failed":
+      return COLORS.error;
+    case "cancelled":
+      return COLORS.muted;
+    case "running":
+      return COLORS.accent;
+  }
+}
+
+function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgentPanelState }) {
+  const selected = createMemo(() =>
+    props.agents.find((agent) => agent.id === props.panel.selectedAgentId),
+  );
+  const visibleAgents = createMemo(() => {
+    const selectedIndex = Math.max(
+      0,
+      props.agents.findIndex((agent) => agent.id === props.panel.selectedAgentId),
+    );
+    const start = Math.max(0, Math.min(selectedIndex - 2, props.agents.length - 6));
+    return props.agents.slice(start, start + 6).map((agent, offset) => ({
+      agent,
+      index: start + offset,
+    }));
+  });
+
+  return (
+    <box
+      position="absolute"
+      top={0}
+      left={0}
+      width="100%"
+      height="100%"
+      zIndex={80}
+      alignItems="center"
+      justifyContent="center"
+    >
+      <box
+        width="94%"
+        height="100%"
+        maxWidth={100}
+        maxHeight={20}
+        flexDirection="column"
+        border
+        borderColor={COLORS.accent}
+        backgroundColor={COLORS.surface}
+        paddingX={2}
+        paddingY={1}
+      >
+        <Show
+          when={props.panel.view === "detail" ? selected() : undefined}
+          fallback={
+            <>
+              <text fg={COLORS.accent}>
+                <strong>Agents</strong> · {props.agents.length} children
+              </text>
+              <box flexDirection="column" flexGrow={1} marginTop={1}>
+                <For each={visibleAgents()}>
+                  {(row) => (
+                    <text
+                      fg={
+                        row.agent.id === props.panel.selectedAgentId
+                          ? COLORS.success
+                          : agentStatusColor(row.agent.status)
+                      }
+                    >
+                      {row.agent.id === props.panel.selectedAgentId ? "› " : "  "}
+                      {agentStatusIcon(row.agent.status)} {row.agent.description} ·{" "}
+                      {row.agent.status} · {row.agent.mode} · {row.agent.provider}/{row.agent.model}{" "}
+                      · in {row.agent.inputTokens.toLocaleString()} out{" "}
+                      {row.agent.outputTokens.toLocaleString()}
+                    </text>
+                  )}
+                </For>
+              </box>
+              <text fg={COLORS.muted}>↑/↓ or Ctrl+K/J · Enter detail · C cancel · Esc close</text>
+            </>
+          }
+        >
+          {(agent: () => UiAgentIndicator) => (
+            <>
+              <text fg={COLORS.accent}>
+                <strong>Agent detail</strong> · {agent().description}
+              </text>
+              <box flexDirection="column" flexGrow={1} marginTop={1}>
+                <text fg={agentStatusColor(agent().status)}>
+                  {agentStatusIcon(agent().status)} status · {agent().status}
+                </text>
+                <text fg={COLORS.text}>mode · {agent().mode}</text>
+                <text fg={COLORS.text}>
+                  model · {agent().provider}/{agent().model}
+                </text>
+                <text fg={COLORS.text}>
+                  tokens · input {agent().inputTokens.toLocaleString()} · output{" "}
+                  {agent().outputTokens.toLocaleString()}
+                </text>
+                <text fg={COLORS.muted}>session · {agent().childSessionId}</text>
+                <text fg={COLORS.muted}>
+                  transcript · child session metadata ·{" "}
+                  {(agent().inputTokens + agent().outputTokens).toLocaleString()} tokens
+                </text>
+                <Show when={agent().summary}>
+                  {(summary: () => string) => (
+                    <text fg={COLORS.success}>summary · {summary()}</text>
+                  )}
+                </Show>
+                <Show when={agent().error}>
+                  {(error: () => string) => <text fg={COLORS.error}>error · {error()}</text>}
+                </Show>
+              </box>
+              <text fg={COLORS.muted}>Esc parent agents · C cancel child</text>
+            </>
+          )}
+        </Show>
+      </box>
+    </box>
+  );
+}
+
 function Conversation(props: { messages: readonly UiMessage[] }) {
   const syntaxStyle = SyntaxStyle.fromStyles({
     default: { fg: COLORS.text },
@@ -221,13 +366,19 @@ export function Root(props: RootProps) {
   const [composerLines, setComposerLines] = createSignal(1);
   let composer: TextareaRenderable | undefined;
   let submitting = false;
-  let overlayWasVisible = state().approval !== undefined || state().picker !== undefined;
+  let overlayWasVisible =
+    state().approval !== undefined ||
+    state().picker !== undefined ||
+    state().agentPanel !== undefined;
 
   const unsubscribe = props.store.subscribe(setState);
   onCleanup(unsubscribe);
 
   createEffect(() => {
-    const overlayVisible = state().approval !== undefined || state().picker !== undefined;
+    const overlayVisible =
+      state().approval !== undefined ||
+      state().picker !== undefined ||
+      state().agentPanel !== undefined;
     if (overlayVisible) composer?.blur();
     else if (overlayWasVisible) queueMicrotask(() => composer?.focus());
     overlayWasVisible = overlayVisible;
@@ -256,7 +407,12 @@ export function Root(props: RootProps) {
           // preserve the draft when submission fails
         } finally {
           submitting = false;
-          if (!props.store.snapshot.approval && !props.store.snapshot.picker) composer?.focus();
+          if (
+            !props.store.snapshot.approval &&
+            !props.store.snapshot.picker &&
+            !props.store.snapshot.agentPanel
+          )
+            composer?.focus();
         }
       }, 0);
     }, 0);
@@ -283,6 +439,22 @@ export function Root(props: RootProps) {
       else if (key.name === "down" || (key.ctrl && key.name === "j")) props.store.movePicker(1);
       else if (key.name === "return") props.store.decidePicker(true);
       else if (key.name === "escape") props.store.decidePicker(false);
+      return;
+    }
+    if (state().agentPanel) {
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.name === "up" || (key.ctrl && key.name === "k")) {
+        props.store.moveAgentSelection(-1);
+      } else if (key.name === "down" || (key.ctrl && key.name === "j")) {
+        props.store.moveAgentSelection(1);
+      } else if (key.name === "return") {
+        props.store.openSelectedAgent();
+      } else if (key.name === "c") {
+        props.store.cancelSelectedAgent();
+      } else if (key.name === "escape") {
+        props.store.backAgentPanel();
+      }
       return;
     }
     if (key.name === "escape" && state().busy) {
@@ -341,10 +513,11 @@ export function Root(props: RootProps) {
       <Show when={state().agents.length > 0}>
         <box height={1} paddingX={1} flexShrink={0}>
           <text fg={COLORS.muted}>
-            agents ·{" "}
+            /agents · agents ·{" "}
             {state()
               .agents.map(
-                (agent) => `${agent.status === "running" ? "◐" : "✓"} ${agent.description}`,
+                (agent) =>
+                  `${agentStatusIcon(agent.status)} ${agent.description} [${agent.status} · ${agent.mode} · ${agent.provider}/${agent.model} · ${agent.inputTokens.toLocaleString()}/${agent.outputTokens.toLocaleString()}]`,
               )
               .join("  ")}
           </text>
@@ -378,7 +551,12 @@ export function Root(props: RootProps) {
           ref={(node) => {
             composer = node;
             queueMicrotask(() => {
-              if (!props.store.snapshot.approval && !props.store.snapshot.picker) node.focus();
+              if (
+                !props.store.snapshot.approval &&
+                !props.store.snapshot.picker &&
+                !props.store.snapshot.agentPanel
+              )
+                node.focus();
             });
           }}
           focused
@@ -402,7 +580,16 @@ export function Root(props: RootProps) {
       <Show
         when={state().approval}
         fallback={
-          <Show when={state().picker}>
+          <Show
+            when={state().picker}
+            fallback={
+              <Show when={state().agentPanel}>
+                {(panel: () => UiAgentPanelState) => (
+                  <AgentPanel agents={state().agents} panel={panel()} />
+                )}
+              </Show>
+            }
+          >
             {(picker: () => UiPickerPrompt) => <PickerOverlay picker={picker()} />}
           </Show>
         }

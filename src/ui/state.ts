@@ -20,12 +20,25 @@ export interface UiMessage {
   tools?: UiToolCard[];
 }
 
+export type UiAgentStatus = "queued" | "running" | "completed" | "blocked" | "failed" | "cancelled";
+
 export interface UiAgentIndicator {
   id: string;
   description: string;
-  status: "queued" | "running" | "completed" | "blocked" | "failed" | "cancelled";
-  mode: "research" | "patch";
+  provider: string;
   model: string;
+  mode: "research" | "patch";
+  status: UiAgentStatus;
+  inputTokens: number;
+  outputTokens: number;
+  childSessionId: string;
+  summary?: string;
+  error?: string;
+}
+
+export interface UiAgentPanelState {
+  view: "list" | "detail";
+  selectedAgentId: string;
 }
 
 export interface UiApprovalPrompt {
@@ -66,6 +79,7 @@ export interface UiSnapshot {
   busy: boolean;
   messages: readonly UiMessage[];
   agents: readonly UiAgentIndicator[];
+  agentPanel?: UiAgentPanelState;
   approval?: UiApprovalPrompt;
   picker?: UiPickerPrompt;
   notice?: string;
@@ -74,12 +88,15 @@ export interface UiSnapshot {
 export type UiListener = (snapshot: UiSnapshot) => void;
 export type UiApprovalDecisionHandler = (id: string, decision: UiApprovalDecision) => void;
 export type UiPickerDecisionHandler = (id: string, optionId: string | undefined) => void;
+export type UiAgentDecision = "open" | "cancel";
+export type UiAgentDecisionHandler = (id: string, decision: UiAgentDecision) => void;
 
 export class UiStore {
   private current: UiSnapshot;
   private readonly listeners = new Set<UiListener>();
   private approvalDecisionHandler: UiApprovalDecisionHandler | undefined;
   private pickerDecisionHandler: UiPickerDecisionHandler | undefined;
+  private agentDecisionHandler: UiAgentDecisionHandler | undefined;
 
   constructor(workspace: string, mode: UiSnapshot["mode"] = "write") {
     this.current = {
@@ -148,6 +165,121 @@ export class UiStore {
 
   clearMessages(): void {
     this.publish({ ...this.current, messages: [] });
+  }
+
+  upsertAgent(agent: UiAgentIndicator): void {
+    const agents = [...this.current.agents];
+    const index = agents.findIndex((candidate) => candidate.id === agent.id);
+    if (index === -1) agents.push(agent);
+    else agents[index] = agent;
+    this.publish({ ...this.current, agents });
+  }
+
+  removeAgent(id: string): void {
+    const index = this.current.agents.findIndex((agent) => agent.id === id);
+    if (index === -1) return;
+
+    const agents = this.current.agents.filter((agent) => agent.id !== id);
+    if (agents.length === 0) {
+      const { agentPanel: _agentPanel, ...snapshot } = this.current;
+      this.publish({ ...snapshot, agents });
+      return;
+    }
+
+    const panel = this.current.agentPanel;
+    if (panel?.selectedAgentId !== id) {
+      this.publish({ ...this.current, agents });
+      return;
+    }
+
+    const replacement = agents[Math.min(index, agents.length - 1)];
+    if (!replacement) return;
+    this.publish({
+      ...this.current,
+      agents,
+      agentPanel: { view: "list", selectedAgentId: replacement.id },
+    });
+  }
+
+  openAgents(): boolean {
+    const selectedAgentId = this.current.agentPanel?.selectedAgentId ?? this.current.agents[0]?.id;
+    if (!selectedAgentId) return false;
+    this.publish({
+      ...this.current,
+      agentPanel: { view: "list", selectedAgentId },
+    });
+    return true;
+  }
+
+  selectAgent(id: string): boolean {
+    if (!this.current.agents.some((agent) => agent.id === id)) return false;
+    this.publish({
+      ...this.current,
+      agentPanel: { view: "list", selectedAgentId: id },
+    });
+    return true;
+  }
+
+  moveAgentSelection(delta: number): void {
+    const panel = this.current.agentPanel;
+    if (!panel || panel.view !== "list" || this.current.agents.length === 0 || delta === 0) return;
+    const selectedIndex = this.current.agents.findIndex(
+      (agent) => agent.id === panel.selectedAgentId,
+    );
+    const nextIndex =
+      (Math.max(0, selectedIndex) + delta + this.current.agents.length) %
+      this.current.agents.length;
+    const agent = this.current.agents[nextIndex];
+    if (agent) this.selectAgent(agent.id);
+  }
+
+  openAgent(id: string): boolean {
+    if (!this.current.agents.some((agent) => agent.id === id)) return false;
+    this.publish({
+      ...this.current,
+      agentPanel: { view: "detail", selectedAgentId: id },
+    });
+    this.agentDecisionHandler?.(id, "open");
+    return true;
+  }
+
+  openSelectedAgent(): boolean {
+    const panel = this.current.agentPanel;
+    return panel ? this.openAgent(panel.selectedAgentId) : false;
+  }
+
+  cancelSelectedAgent(): boolean {
+    const panel = this.current.agentPanel;
+    const handler = this.agentDecisionHandler;
+    if (!panel || !handler) return false;
+    handler(panel.selectedAgentId, "cancel");
+    return true;
+  }
+
+  backAgentPanel(): void {
+    const panel = this.current.agentPanel;
+    if (!panel) return;
+    if (panel.view === "detail") {
+      this.publish({ ...this.current, agentPanel: { ...panel, view: "list" } });
+    } else {
+      this.clearAgentSelection();
+    }
+  }
+
+  clearAgentSelection(): void {
+    if (!this.current.agentPanel) return;
+    const { agentPanel: _agentPanel, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
+  setAgentDecisionHandler(handler: UiAgentDecisionHandler): () => void {
+    if (this.agentDecisionHandler) {
+      throw new Error("An agent decision handler is already registered");
+    }
+    this.agentDecisionHandler = handler;
+    return () => {
+      if (this.agentDecisionHandler === handler) this.agentDecisionHandler = undefined;
+    };
   }
 
   showApproval(approval: UiApprovalPrompt): void {

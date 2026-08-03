@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+IMPLEMENTATION_PLAN.md
 *.log
 *.tmp
 .DS_Store

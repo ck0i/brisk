@@ -18,6 +18,7 @@ export interface UiMessage {
   thinkingExpanded?: boolean;
   streaming?: boolean;
   error?: string;
+  errorExpanded?: boolean;
   tools?: UiToolCard[];
 }
 
@@ -101,6 +102,7 @@ export interface UiSnapshot {
   approval?: UiApprovalPrompt;
   picker?: UiPickerPrompt;
   notice?: string;
+  noticeExpanded?: boolean;
 }
 
 export type UiListener = (snapshot: UiSnapshot) => void;
@@ -189,15 +191,30 @@ export class UiStore {
 
   clearNotice(): void {
     if (this.current.notice === undefined) return;
-    const { notice: _notice, ...snapshot } = this.current;
+    const { notice: _notice, noticeExpanded: _noticeExpanded, ...snapshot } = this.current;
     this.publish(snapshot);
   }
 
   toggleLatestDisclosure(): boolean {
+    if (this.current.notice && this.current.notice.length > 240) {
+      this.publish({
+        ...this.current,
+        noticeExpanded: !this.current.noticeExpanded,
+      });
+      return true;
+    }
     const messages = [...this.current.messages];
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
       const message = messages[messageIndex];
       if (!message) continue;
+      if (message.error && message.error.length > 240) {
+        messages[messageIndex] = {
+          ...message,
+          errorExpanded: !message.errorExpanded,
+        };
+        this.publish({ ...this.current, messages });
+        return true;
+      }
       const tools = [...(message.tools ?? [])];
       for (let toolIndex = tools.length - 1; toolIndex >= 0; toolIndex -= 1) {
         const tool = tools[toolIndex];

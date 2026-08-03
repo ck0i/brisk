@@ -67,6 +67,10 @@ export interface RootProps {
   onKeybinding?: (key: string) => void;
 }
 
+function disclosedText(value: string, expanded: boolean | undefined, limit = 240): string {
+  return expanded || value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+}
+
 function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
   return (
     <box flexDirection="column" marginBottom={1} width="100%">
@@ -133,7 +137,14 @@ function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
         )}
       </For>
       <Show when={props.message.error}>
-        <text fg={COLORS.error}>{props.message.error}</text>
+        {(error: () => string) => (
+          <text fg={COLORS.error}>
+            {disclosedText(error(), props.message.errorExpanded)}
+            {error().length > 240
+              ? ` · ${props.message.errorExpanded ? "expanded" : "collapsed"} · Tab toggles`
+              : ""}
+          </text>
+        )}
       </Show>
     </box>
   );
@@ -650,8 +661,21 @@ export function Root(props: RootProps) {
 
       <Show when={state().notice}>
         {(notice: () => string) => (
-          <box minHeight={1} maxHeight={3} flexShrink={0} paddingX={1} width="100%">
-            <text fg={COLORS.error}>error · {notice()}</text>
+          <box
+            minHeight={1}
+            maxHeight={state().noticeExpanded ? 12 : 3}
+            flexShrink={0}
+            paddingX={1}
+            width="100%"
+          >
+            <text fg={COLORS.error}>
+              error
+              {notice().length > 240
+                ? ` · ${state().noticeExpanded ? "expanded" : "collapsed"} · Tab toggles`
+                : ""}
+              {" · "}
+              {disclosedText(notice(), state().noticeExpanded)}
+            </text>
           </box>
         )}
       </Show>

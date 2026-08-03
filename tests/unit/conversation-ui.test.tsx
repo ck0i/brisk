@@ -128,7 +128,9 @@ test("submission errors remain visible and preserve the composer draft", async (
       <Root
         store={store}
         onSubmit={() => {
-          throw new Error("local command failed api_key=BRISK_TEST_SECRET_VALUE");
+          throw new Error(
+            `local command failed api_key=BRISK_TEST_SECRET_VALUE ${"detail ".repeat(45)}expanded tail`,
+          );
         }}
         onAbort={() => {}}
         onExit={() => {}}
@@ -141,10 +143,18 @@ test("submission errors remain visible and preserve the composer draft", async (
     await setup.mockInput.typeText("keep this draft");
     setup.mockInput.pressEnter();
     const frame = await setup.waitForFrame((value) => value.includes("local command failed"));
-    expect(frame).toContain("error · local command failed api_key=[REDACTED]");
+    expect(frame).toContain(
+      "error · collapsed · Tab toggles · local command failed api_key=[REDACTED]",
+    );
     expect(frame).not.toContain("BRISK_TEST_SECRET_VALUE");
+    expect(frame).toContain("collapsed · Tab toggles");
+    expect(frame).not.toContain("expanded tail");
     expect(frame).toContain("keep this draft");
     expect(store.snapshot.status).toBe("error");
+
+    setup.mockInput.pressTab();
+    const expanded = await setup.waitForFrame((value) => value.includes("expanded tail"));
+    expect(expanded).toContain("expanded · Tab toggles");
   } finally {
     setup.renderer.destroy();
   }

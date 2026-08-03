@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import "@opentui/solid/preload";
-
 export {};
 
 const VERSION = "0.1.0";

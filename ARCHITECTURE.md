@@ -138,6 +138,8 @@ Approved bash and providers retain the current user's network/filesystem privile
 
 ## Release layout
 
+The npm package runs `scripts/build-package.ts` during prepack. It bundles Brisk and its Solid runtime into `dist/npm/brisk.js` with the OpenTUI transform applied, while leaving the pinned provider, native UI, compaction, and utility packages external. The `brisk` bin points to this generated Bun entrypoint, so execution never depends on a `bunfig.toml` in the caller's working directory.
+
 `scripts/build.ts` invokes Bun's standalone compiler with an explicit Bun target and disables runtime `.env`/`bunfig.toml` autoloading. A generated entrypoint sets an adjacent OpenTUI asset root before loading `src/main.ts`. Each clean per-target directory contains:
 
 - deterministic `brisk` or `brisk.exe` filename;

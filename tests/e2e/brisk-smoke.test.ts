@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { buildPackageBundle } from "../../scripts/build-package.ts";
 import type { ProviderEvent } from "../../src/core/events.ts";
 import { AgentLoop } from "../../src/core/agent-loop.ts";
 import type { ToolResultMessage } from "../../src/core/messages.ts";
@@ -245,18 +246,19 @@ test("Brisk edits, verifies, persists, closes, and resumes a coding session", as
   }
 });
 
-test("headless CLI loads the Solid transform outside the repository", async () => {
+test("packaged CLI loads the Solid transform outside the repository", async () => {
   const outsideDirectory = await mkdtemp(join(tmpdir(), "brisk-outside-cwd-"));
-  const child = Bun.spawn(
-    [process.execPath, join(repositoryRoot, "src", "main.ts"), "bench", "--json"],
-    {
-      cwd: outsideDirectory,
-      env: { ...process.env, NO_COLOR: "1" },
-      stdin: "ignore",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
+  const bundleDirectory = await mkdtemp(
+    join(repositoryRoot, "node_modules", ".brisk-package-test-"),
   );
+  const executable = await buildPackageBundle(bundleDirectory);
+  const child = Bun.spawn([executable, "bench", "--json"], {
+    cwd: outsideDirectory,
+    env: { ...process.env, NO_COLOR: "1" },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const timeout = setTimeout(() => child.kill("SIGKILL"), 10_000);
   try {
     const [exitCode, stdout, stderr] = await Promise.all([
@@ -281,7 +283,10 @@ test("headless CLI loads the Solid transform outside the repository", async () =
     clearTimeout(timeout);
     if (child.exitCode === null) child.kill("SIGKILL");
     await child.exited.catch(() => undefined);
-    await rm(outsideDirectory, { recursive: true, force: true });
+    await Promise.all([
+      rm(outsideDirectory, { recursive: true, force: true }),
+      rm(bundleDirectory, { recursive: true, force: true }),
+    ]);
   }
 });
 

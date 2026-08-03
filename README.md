@@ -30,7 +30,7 @@ Uninstall it with:
 bun remove --global brisk-ai
 ```
 
-The shared package-manager binary directory remains in `PATH` because other global packages may use it. The published executable entry is the Bun-shebang TypeScript file declared in `package.json`. Node alone is not a supported runtime for this package.
+The shared package-manager binary directory remains in `PATH` because other global packages may use it. The published executable is a prebuilt Bun JavaScript bundle with its Solid JSX transform already applied, so it is independent of the launch directory. Node alone is not a supported runtime for this package.
 
 ### Standalone release
 

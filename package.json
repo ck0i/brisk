@@ -20,11 +20,13 @@
   },
   "packageManager": "bun@1.3.14",
   "bin": {
-    "brisk": "src/main.ts"
+    "brisk": "dist/npm/brisk.js"
   },
   "files": [
     "src",
     "docs",
+    "dist/npm/brisk.js",
+    "scripts/build-package.ts",
     "scripts/install-path.ts",
     "bunfig.toml",
     "tsconfig.json",
@@ -38,6 +40,7 @@
   "scripts": {
     "dev": "bun src/main.ts",
     "postinstall": "bun scripts/install-path.ts --package-install",
+    "prepack": "bun run build:package",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings src tests scripts",
     "format": "prettier --write .",
@@ -47,8 +50,9 @@
     "bench": "bun src/main.ts bench",
     "build": "bun scripts/build.ts",
     "build:all": "bun scripts/build.ts --all",
+    "build:package": "bun scripts/build-package.ts",
     "build:verify": "bun scripts/build.ts --verify",
-    "pack:check": "bun pm pack --dry-run --ignore-scripts",
+    "pack:check": "bun run build:package && bun pm pack --dry-run --ignore-scripts",
     "release:check": "bun run typecheck && bun run lint && bun run format:check && bun test && bun run build:verify && bun run pack:check",
     "verify": "bun run typecheck && bun run lint && bun test && bun run test:e2e"
   },

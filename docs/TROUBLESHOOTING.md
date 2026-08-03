@@ -30,6 +30,10 @@ For a standalone release, put the extracted release directory on `PATH` or link 
 
 Brisk requires Bun. The `brisk-ai` package exposes a `#!/usr/bin/env bun` entrypoint. Do not invoke `node src/main.ts`; install Bun 1.3.14 or newer and ensure `env bun` resolves to it.
 
+### The TUI opens to a blank screen
+
+Open Brisk in a real terminal rather than another TUI's command-output pane. Brisk clears stale synchronized-output state before OpenTUI starts, so a terminal left buffering frames by an interrupted full-screen application should recover automatically. If the terminal itself remains wedged, open a fresh tab or run `printf '\033[?2026l\033[?25h\033[0m'; reset` before retrying.
+
 ### Missing OpenTUI asset or native library
 
 Standalone releases are directories, not single-file distributions. Keep these together:

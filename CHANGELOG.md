@@ -8,6 +8,11 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 
 - Cross-platform global-install setup that idempotently persists the package manager's binary directory in Bash, Zsh, Fish, or the Windows user `PATH`.
 
+### Fixed
+
+- Recover stale terminal synchronized-output state before mounting OpenTUI, preventing blank startup after an interrupted full-screen application.
+- Convert the configured whole-number compaction percentage to the context manager's ratio, preventing default startup initialization failure.
+
 ## [0.1.0] - 2026-08-03
 
 ### Added

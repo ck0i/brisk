@@ -259,7 +259,7 @@ export class InteractiveRuntime {
       model,
       recentTargetTokens: compaction.keepRecentTokens,
       automaticCompaction: compaction.enabled,
-      thresholdPercent: compaction.thresholdPercent,
+      thresholdPercent: compaction.thresholdPercent / 100,
       initialMessages: session.messages,
       initialCompactionCount: session.metadata.compactionCount,
       ...(session.previousCompaction === undefined

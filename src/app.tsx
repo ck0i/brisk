@@ -30,11 +30,19 @@ export interface LaunchResult {
   timeToFirstDrawMs: number;
 }
 
+const TERMINAL_RECOVERY_SEQUENCE = "\u001b[?2026l\u001b[?25h\u001b[0m";
+
+function recoverStaleTerminalState(): void {
+  if (process.stdout.isTTY) process.stdout.write(TERMINAL_RECOVERY_SEQUENCE);
+}
+
 function onceFrame(renderer: CliRenderer): Promise<void> {
   return new Promise((resolve) => renderer.once(CliRenderEvents.FRAME, () => resolve()));
 }
 
 export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult> {
+  // A prior TUI killed during synchronized output can leave the terminal buffering every frame.
+  recoverStaleTerminalState();
   const renderer = await createCliRenderer({
     targetFps: 60,
     maxFps: 60,

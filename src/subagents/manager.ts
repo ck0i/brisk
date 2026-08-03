@@ -25,7 +25,7 @@ export class SubagentManager {
   private readonly checkpointStore: CheckpointStore;
   private readonly createCheckpointCallback: CheckpointFactory;
   private readonly providerFactory: SubagentManagerOptions["providerFactory"];
-  private readonly defaultModel: string;
+  private defaultModel: string;
   private readonly maxDepth: number;
   private readonly childSessionFactory: SubagentManagerOptions["childSessionFactory"];
   private readonly childToolsFactory: SubagentManagerOptions["childToolsFactory"];
@@ -58,6 +58,11 @@ export class SubagentManager {
 
   get depthLimit(): number {
     return this.maxDepth;
+  }
+
+  setDefaultModel(model: string): void {
+    if (model.trim().length === 0) throw new TypeError("Default child model cannot be empty");
+    this.defaultModel = model;
   }
 
   subscribe(listener: SubagentManagerListener): () => void {

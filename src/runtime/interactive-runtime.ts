@@ -372,6 +372,7 @@ export class InteractiveRuntime {
       status: "ready",
     });
     await this.initializeSubagents(selectedName);
+    this.subagents?.setDefaultModel(selectedName);
   }
 
   private async initializeSubagents(defaultModel: string): Promise<void> {

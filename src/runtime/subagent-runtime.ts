@@ -102,6 +102,10 @@ export class RuntimeSubagents {
     return runtime;
   }
 
+  setDefaultModel(model: string): void {
+    this.manager.setDefaultModel(model);
+  }
+
   openPanel(): boolean {
     return this.options.store.openAgents();
   }

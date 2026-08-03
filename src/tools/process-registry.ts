@@ -51,10 +51,74 @@ export async function terminateProcessTree(process: ManagedProcess, graceMs = 15
     return;
   }
 
+  if (globalThis.process.platform === "linux") {
+    await terminateLinuxDescendants(process.pid, graceMs);
+  }
   signalPosixTree(process, "SIGTERM");
   const exited = await waitForExit(process, graceMs);
   if (!exited && process.exitCode === null) signalPosixTree(process, "SIGKILL");
   await waitForExit(process, graceMs);
+}
+
+async function terminateLinuxDescendants(rootPid: number, graceMs: number): Promise<void> {
+  const descendants = await collectLinuxDescendants(rootPid);
+  if (descendants.length === 0) return;
+  signalPids(descendants, "SIGTERM");
+  if (await waitForPidsGone(descendants, graceMs)) return;
+  signalPids(descendants, "SIGKILL");
+  await waitForPidsGone(descendants, graceMs);
+}
+
+async function collectLinuxDescendants(rootPid: number): Promise<number[]> {
+  const ordered: number[] = [];
+  const visited = new Set<number>();
+  const visit = async (pid: number): Promise<void> => {
+    if (visited.has(pid)) return;
+    visited.add(pid);
+    let children = "";
+    try {
+      children = await Bun.file(`/proc/${pid}/task/${pid}/children`).text();
+    } catch {
+      return;
+    }
+    for (const value of children.trim().split(/\s+/)) {
+      if (value.length === 0) continue;
+      const childPid = Number.parseInt(value, 10);
+      if (!Number.isSafeInteger(childPid) || childPid <= 0) continue;
+      await visit(childPid);
+      ordered.push(childPid);
+    }
+  };
+  await visit(rootPid);
+  return ordered;
+}
+
+function signalPids(pids: readonly number[], signal: NodeJS.Signals): void {
+  for (const pid of pids) {
+    try {
+      globalThis.process.kill(pid, signal);
+    } catch {
+      // The process may have exited between discovery and signaling.
+    }
+  }
+}
+
+async function waitForPidsGone(pids: readonly number[], milliseconds: number): Promise<boolean> {
+  const deadline = performance.now() + milliseconds;
+  do {
+    if (pids.every((pid) => !pidExists(pid))) return true;
+    await Bun.sleep(5);
+  } while (performance.now() < deadline);
+  return pids.every((pid) => !pidExists(pid));
+}
+
+function pidExists(pid: number): boolean {
+  try {
+    globalThis.process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function signalPosixTree(process: ManagedProcess, signal: NodeJS.Signals): void {

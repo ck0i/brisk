@@ -132,7 +132,7 @@ export async function runBash(
       stdout: stdout.content,
       stderr: stderr.content,
       output: combined.content,
-      exitCode,
+      exitCode: timedOut && exitCode === 0 ? null : exitCode,
       signal: subprocess.signalCode,
       durationMs: performance.now() - startedAt,
       timedOut,

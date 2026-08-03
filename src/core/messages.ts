@@ -17,9 +17,21 @@ export interface ToolCall {
   readonly arguments: string;
 }
 
+export interface ImageContent {
+  readonly type: "image";
+  /** raw base64 without a data URL prefix */
+  readonly data: string;
+  readonly mimeType: string;
+  readonly detail?: "auto" | "low" | "high" | "original";
+}
+
 export interface UserMessage {
   readonly role: "user";
+  /** scalar text remains the canonical display and persistence representation */
   readonly content: string;
+  /** ordered after scalar text when translated to provider content blocks */
+  readonly images?: readonly ImageContent[];
+  readonly timestamp?: number;
 }
 
 export interface AssistantMessage {
@@ -41,6 +53,7 @@ export interface ToolResultMessage {
   readonly name: string;
   readonly content: string;
   readonly isError?: boolean;
+  readonly timestamp?: number;
 }
 
 export type Message = UserMessage | AssistantMessage | ToolResultMessage;

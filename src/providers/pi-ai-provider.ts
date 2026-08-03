@@ -13,7 +13,7 @@ import {
 import type { Effort } from "@oh-my-pi/pi-catalog/effort";
 
 import { NormalizedProviderError, type ProviderEvent } from "../core/events.ts";
-import type { AssistantMessage, Message, Usage } from "../core/messages.ts";
+import type { AssistantMessage, ImageContent, Message, Usage } from "../core/messages.ts";
 import { normalizeAssistantMessageEvent, normalizeProviderFailure } from "./normalization.ts";
 import type { Provider, ProviderRequest, ProviderToolSchema } from "./types.ts";
 
@@ -142,7 +142,7 @@ export function translateContext(
   const timestampBase = now - messages.length;
   return {
     messages: messages.map((message, index) =>
-      translateMessage(message, model, timestampBase + index),
+      translateMessage(message, model, message.timestamp ?? timestampBase + index),
     ),
     ...(tools.length === 0 ? {} : { tools: tools.map(translateTool) }),
   };
@@ -154,10 +154,31 @@ export function translateMessage(
   timestamp: number,
 ): PiMessage {
   switch (message.role) {
-    case "user":
-      // Brisk currently stores text only. Vision-capable models keep the exact same
-      // text shape until Brisk gains an explicit image content block.
-      return { role: "user", content: message.content, timestamp };
+    case "user": {
+      const images = (message.images ?? []).filter(validImage);
+      if (images.length === 0 || !model.input.includes("image")) {
+        return {
+          role: "user",
+          content:
+            message.content.length > 0
+              ? message.content
+              : images.length > 0
+                ? "[image omitted: selected model does not accept image input]"
+                : "",
+          timestamp,
+        };
+      }
+      return {
+        role: "user",
+        content: [
+          ...(message.content.length === 0
+            ? []
+            : [{ type: "text" as const, text: message.content }]),
+          ...images.map((image) => ({ ...image })),
+        ],
+        timestamp,
+      };
+    }
     case "assistant":
       return translateAssistantMessage(message, model, timestamp);
     case "tool":
@@ -167,9 +188,13 @@ export function translateMessage(
         toolName: message.name,
         content: [{ type: "text", text: message.content }],
         isError: message.isError ?? false,
-        timestamp,
+        timestamp: message.timestamp ?? timestamp,
       };
   }
+}
+
+function validImage(image: ImageContent): boolean {
+  return image.data.length > 0 && image.mimeType.startsWith("image/");
 }
 
 export function translateTool(tool: ProviderToolSchema): Tool {

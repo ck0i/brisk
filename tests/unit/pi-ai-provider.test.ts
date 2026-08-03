@@ -116,6 +116,58 @@ describe("pi-ai message and tool translation", () => {
     const context = translateContext([{ role: "user", content: "plain text" }], [], vision, 10);
     expect(context.messages[0]).toEqual({ role: "user", content: "plain text", timestamp: 9 });
   });
+
+  test("translates explicit images exactly for vision and never sends them to text-only models", () => {
+    const imageMessage: Message = {
+      role: "user",
+      content: "inspect frame",
+      images: [
+        {
+          type: "image",
+          data: "AQID",
+          mimeType: "image/png",
+          detail: "original",
+        },
+      ],
+      timestamp: 42,
+    };
+    const vision = makeModel("provider-one", "vision-model", "https://one.test/v1", [
+      "text",
+      "image",
+    ]);
+
+    expect(translateContext([imageMessage], [], vision, 100).messages[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "inspect frame" },
+        { type: "image", data: "AQID", mimeType: "image/png", detail: "original" },
+      ],
+      timestamp: 42,
+    });
+    expect(translateContext([imageMessage], [], model, 100).messages[0]).toEqual({
+      role: "user",
+      content: "inspect frame",
+      timestamp: 42,
+    });
+    expect(
+      translateContext(
+        [
+          {
+            role: "user",
+            content: "",
+            images: [{ type: "image", data: "AQID", mimeType: "image/png" }],
+          },
+        ],
+        [],
+        model,
+        100,
+      ).messages[0],
+    ).toEqual({
+      role: "user",
+      content: "[image omitted: selected model does not accept image input]",
+      timestamp: 99,
+    });
+  });
 });
 
 describe("PiAiProvider stream adapter", () => {

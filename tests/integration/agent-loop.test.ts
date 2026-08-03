@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { ContextManager } from "../../src/context/context-manager.ts";
 import { AgentLoop } from "../../src/core/agent-loop.ts";
 import type { AgentEvent, NormalizedProviderError } from "../../src/core/events.ts";
 import type { JsonValue } from "../../src/core/messages.ts";
@@ -281,6 +282,57 @@ describe("AgentLoop failures and retries", () => {
       expect(reported).toMatchObject({ kind: fixture.kind, status: fixture.status });
       expect(provider.requestCount).toBe(1);
     }
+  });
+
+  test("force-compacts once on pre-delta context overflow and resumes transparently", async () => {
+    const provider = new FakeProvider([
+      { error: { kind: "context_overflow", message: "too large", status: 400 } },
+      { text: "resumed" },
+    ]);
+    const initialMessages = [
+      { role: "user" as const, content: "old request" },
+      { role: "assistant" as const, content: "old decision", toolCalls: [] },
+    ];
+    const contextLifecycle = new ContextManager({
+      model: {
+        provider: "openai",
+        api: "openai-completions",
+        model: "fake",
+        contextWindow: 100_000,
+        supportsImages: false,
+      },
+      initialMessages,
+      recentTargetTokens: 10,
+      maxFrames: 1,
+    });
+    const loop = new AgentLoop({
+      provider,
+      model: "fake",
+      initialMessages,
+      contextLifecycle,
+      maxRetries: 0,
+    });
+
+    await loop.submit("outstanding tail");
+
+    expect(provider.requestCount).toBe(2);
+    expect(provider.requests[0]?.messages).toEqual(
+      initialMessages.concat({
+        role: "user",
+        content: "outstanding tail",
+      }),
+    );
+    expect(provider.requests[1]?.messages[0]?.content).toContain("TEXT-ONLY FALLBACK");
+    expect(provider.requests[1]?.messages.at(-1)).toEqual({
+      role: "user",
+      content: "outstanding tail",
+    });
+    expect(loop.messages).toEqual([
+      ...initialMessages,
+      { role: "user", content: "outstanding tail" },
+      { role: "assistant", content: "resumed", toolCalls: [] },
+    ]);
+    expect(contextLifecycle.inspect().compactionCount).toBe(1);
   });
 });
 

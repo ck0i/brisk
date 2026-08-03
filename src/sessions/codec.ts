@@ -1,5 +1,6 @@
 import type {
   AssistantMessage,
+  ImageContent,
   JsonValue,
   ToolCall,
   ToolResultMessage,
@@ -417,7 +418,41 @@ function parseUserMessage(value: unknown): UserMessage | undefined {
   if (!isRecord(value) || value.role !== "user" || typeof value.content !== "string") {
     return undefined;
   }
-  return { role: "user", content: value.content };
+  if (!isOptionalFiniteNumber(value.timestamp)) return undefined;
+  if (value.images !== undefined && !Array.isArray(value.images)) return undefined;
+  const images: ImageContent[] = [];
+  for (const imageValue of value.images ?? []) {
+    const image = parseImageContent(imageValue);
+    if (!image) return undefined;
+    images.push(image);
+  }
+  return {
+    role: "user",
+    content: value.content,
+    ...(images.length === 0 ? {} : { images }),
+    ...(value.timestamp === undefined ? {} : { timestamp: value.timestamp }),
+  };
+}
+
+function parseImageContent(value: unknown): ImageContent | undefined {
+  if (!isRecord(value) || value.type !== "image") return undefined;
+  if (typeof value.data !== "string" || value.data.length === 0) return undefined;
+  if (typeof value.mimeType !== "string" || !value.mimeType.startsWith("image/")) return undefined;
+  if (
+    value.detail !== undefined &&
+    value.detail !== "auto" &&
+    value.detail !== "low" &&
+    value.detail !== "high" &&
+    value.detail !== "original"
+  ) {
+    return undefined;
+  }
+  return {
+    type: "image",
+    data: value.data,
+    mimeType: value.mimeType,
+    ...(value.detail === undefined ? {} : { detail: value.detail }),
+  };
 }
 
 function parseAssistantMessage(value: unknown): AssistantMessage | undefined {
@@ -462,12 +497,14 @@ function parseToolResultMessage(value: unknown): ToolResultMessage | undefined {
   if (!isRecord(value) || value.role !== "tool") return undefined;
   if (typeof value.toolCallId !== "string" || typeof value.name !== "string") return undefined;
   if (typeof value.content !== "string" || !isOptionalBoolean(value.isError)) return undefined;
+  if (!isOptionalFiniteNumber(value.timestamp)) return undefined;
   return {
     role: "tool",
     toolCallId: value.toolCallId,
     name: value.name,
     content: value.content,
     ...(value.isError === undefined ? {} : { isError: value.isError }),
+    ...(value.timestamp === undefined ? {} : { timestamp: value.timestamp }),
   };
 }
 
@@ -510,11 +547,29 @@ function parseUsageTotals(value: unknown): SessionUsageTotals | undefined {
 function parseCompaction(value: unknown): CompactionMetadata | undefined {
   if (!isRecord(value) || typeof value.summary !== "string") return undefined;
   if (value.preserveData !== undefined && !isJsonValue(value.preserveData)) return undefined;
+  if (!isOptionalString(value.rawSource)) return undefined;
+  if (!isOptionalString(value.firstKeptIdentity)) return undefined;
+  if (!isOptionalNonnegativeNumber(value.tokensBefore)) return undefined;
+  if (!isOptionalNonnegativeNumber(value.textTokenEstimate)) return undefined;
+  if (!isOptionalNonnegativeNumber(value.compactedImageTokenEstimate)) return undefined;
+  if (!isOptionalNonnegativeInteger(value.imageCount)) return undefined;
   if (!isOptionalNonnegativeInteger(value.compactedMessageCount)) return undefined;
   if (!isOptionalNonnegativeInteger(value.retainedMessageCount)) return undefined;
   return {
     summary: value.summary,
     ...(value.preserveData === undefined ? {} : { preserveData: value.preserveData }),
+    ...(value.rawSource === undefined ? {} : { rawSource: value.rawSource }),
+    ...(value.firstKeptIdentity === undefined
+      ? {}
+      : { firstKeptIdentity: value.firstKeptIdentity }),
+    ...(value.tokensBefore === undefined ? {} : { tokensBefore: value.tokensBefore }),
+    ...(value.textTokenEstimate === undefined
+      ? {}
+      : { textTokenEstimate: value.textTokenEstimate }),
+    ...(value.compactedImageTokenEstimate === undefined
+      ? {}
+      : { compactedImageTokenEstimate: value.compactedImageTokenEstimate }),
+    ...(value.imageCount === undefined ? {} : { imageCount: value.imageCount }),
     ...(value.compactedMessageCount === undefined
       ? {}
       : { compactedMessageCount: value.compactedMessageCount }),

@@ -16,6 +16,22 @@ import type {
 import type { Provider } from "../providers/types.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 
+export interface AgentContextLifecycle {
+  /** Return the provider-ready view without changing the supplied full transcript. */
+  prepare(
+    messages: readonly Message[],
+    model: string,
+    signal: AbortSignal,
+  ): Promise<readonly Message[]>;
+  /** Force one compaction after a provider overflow before response deltas. */
+  forceCompact(
+    messages: readonly Message[],
+    model: string,
+    signal: AbortSignal,
+  ): Promise<readonly Message[]>;
+  modelChanged?(model: string): void;
+}
+
 export interface AgentLoopOptions {
   readonly provider: Provider;
   readonly model: string;
@@ -25,6 +41,7 @@ export interface AgentLoopOptions {
   readonly retryDelayMs?: number;
   readonly initialMessages?: readonly Message[];
   readonly initialUsage?: Usage;
+  readonly contextLifecycle?: AgentContextLifecycle;
 }
 
 export type AgentEventListener = (event: AgentEvent) => void;
@@ -52,6 +69,7 @@ export class AgentLoop {
   private readonly tools: ToolRegistry;
   private readonly maxRetries: number;
   private readonly retryDelayMs: number;
+  private readonly contextLifecycle: AgentContextLifecycle | undefined;
   private readonly history: Message[];
   private readonly listeners = new Set<AgentEventListener>();
   private readonly pending: PendingTurn[] = [];
@@ -65,6 +83,7 @@ export class AgentLoop {
     this.tools = options.tools ?? new ToolRegistry();
     this.history = [...(options.initialMessages ?? [])];
     this.accumulatedUsage = options.initialUsage ?? { inputTokens: 0, outputTokens: 0 };
+    this.contextLifecycle = options.contextLifecycle;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 50;
     if (!Number.isInteger(this.maxRetries) || this.maxRetries < 0) {
@@ -94,6 +113,7 @@ export class AgentLoop {
   setModel(model: string): void {
     if (model.length === 0) throw new TypeError("Model cannot be empty");
     this.model = model;
+    this.contextLifecycle?.modelChanged?.(model);
   }
 
   subscribe(listener: AgentEventListener): () => void {
@@ -217,7 +237,9 @@ export class AgentLoop {
   }
 
   private async collectResponse(signal: AbortSignal): Promise<CollectedResponse> {
-    for (let attempt = 0; ; attempt += 1) {
+    let retryAttempt = 0;
+    let overflowCompacted = false;
+    while (true) {
       let sawDelta = false;
       try {
         return await this.collectResponseAttempt(signal, () => {
@@ -226,8 +248,20 @@ export class AgentLoop {
       } catch (error) {
         const normalized = normalizeProviderError(error);
         if (signal.aborted || normalized.kind === "aborted") throw normalized;
-        if (!normalized.retryable || sawDelta || attempt >= this.maxRetries) throw normalized;
-        const delay = normalized.retryAfter ?? this.retryDelayMs * 2 ** attempt;
+        if (
+          normalized.kind === "context_overflow" &&
+          !sawDelta &&
+          !overflowCompacted &&
+          this.contextLifecycle
+        ) {
+          await this.contextLifecycle.forceCompact(this.history, this.model, signal);
+          throwIfAborted(signal);
+          overflowCompacted = true;
+          continue;
+        }
+        if (!normalized.retryable || sawDelta || retryAttempt >= this.maxRetries) throw normalized;
+        const delay = normalized.retryAfter ?? this.retryDelayMs * 2 ** retryAttempt;
+        retryAttempt += 1;
         await abortableDelay(delay, signal);
       }
     }
@@ -252,8 +286,12 @@ export class AgentLoop {
       | undefined;
     const calls = new Map<number, ToolCallBuilder>();
 
+    const activeMessages = this.contextLifecycle
+      ? await this.contextLifecycle.prepare(this.history, this.model, signal)
+      : this.history;
+    throwIfAborted(signal);
     const events = this.provider.stream({
-      messages: [...this.history],
+      messages: [...activeMessages],
       tools: this.tools.schemas,
       signal,
       model: this.model,

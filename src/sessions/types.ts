@@ -60,6 +60,13 @@ export interface CreateSessionOptions {
 export interface CompactionMetadata {
   readonly summary: string;
   readonly preserveData?: JsonValue;
+  /** bounded plain-text archive source for deterministic non-vision recovery */
+  readonly rawSource?: string;
+  readonly firstKeptIdentity?: string;
+  readonly tokensBefore?: number;
+  readonly textTokenEstimate?: number;
+  readonly compactedImageTokenEstimate?: number;
+  readonly imageCount?: number;
   readonly compactedMessageCount?: number;
   readonly retainedMessageCount?: number;
 }

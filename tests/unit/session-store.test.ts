@@ -316,6 +316,75 @@ describe("session store", () => {
     }
   });
 
+  test("round-trips explicit user images and extended compaction metadata", async () => {
+    const layout = await createLayout();
+    try {
+      const store = testStore(layout.sessionsDir, "images");
+      const metadata = await store.create(createOptions(layout, "images"));
+      await store.appendBatch(metadata.id, [
+        {
+          type: "user_message",
+          message: {
+            role: "user",
+            content: "inspect",
+            images: [
+              {
+                type: "image",
+                data: "AQID",
+                mimeType: "image/png",
+                detail: "original",
+              },
+            ],
+            timestamp: 42,
+          },
+        },
+        {
+          type: "compaction",
+          compaction: {
+            summary: "archive",
+            preserveData: { snapcompact: { frames: [] } },
+            rawSource: "structured source",
+            firstKeptIdentity: "brisk-1-12345678",
+            tokensBefore: 100,
+            textTokenEstimate: 20,
+            compactedImageTokenEstimate: 5024,
+            imageCount: 1,
+            compactedMessageCount: 1,
+            retainedMessageCount: 0,
+          },
+        },
+      ]);
+
+      const loaded = await store.open(metadata.id);
+      expect(loaded.messages).toEqual([
+        {
+          role: "user",
+          content: "inspect",
+          images: [
+            {
+              type: "image",
+              data: "AQID",
+              mimeType: "image/png",
+              detail: "original",
+            },
+          ],
+          timestamp: 42,
+        },
+      ]);
+      const compaction = loaded.entries.find((entry) => entry.type === "compaction");
+      expect(compaction).toMatchObject({
+        type: "compaction",
+        compaction: {
+          rawSource: "structured source",
+          imageCount: 1,
+          compactedImageTokenEstimate: 5024,
+        },
+      });
+    } finally {
+      await rm(layout.root, { recursive: true, force: true });
+    }
+  });
+
   test("surfaces append failures and predictably poisons later writes", async () => {
     const layout = await createLayout();
     try {

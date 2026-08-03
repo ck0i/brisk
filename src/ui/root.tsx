@@ -2,7 +2,13 @@ import { SyntaxStyle, type KeyBinding, type TextareaRenderable } from "@opentui/
 import { useKeyboard } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
-import type { UiApprovalDecision, UiApprovalPrompt, UiMessage, UiStore } from "./state.ts";
+import type {
+  UiApprovalDecision,
+  UiApprovalPrompt,
+  UiMessage,
+  UiPickerPrompt,
+  UiStore,
+} from "./state.ts";
 
 const COLORS = {
   background: "#0b0d10",
@@ -129,6 +135,68 @@ function ApprovalOverlay(props: { approval: UiApprovalPrompt }) {
   );
 }
 
+function PickerOverlay(props: { picker: UiPickerPrompt }) {
+  const visibleOptions = createMemo(() => {
+    const start = Math.max(
+      0,
+      Math.min(props.picker.selectedIndex - 5, props.picker.options.length - 12),
+    );
+    return props.picker.options.slice(start, start + 12).map((option, offset) => ({
+      option,
+      index: start + offset,
+    }));
+  });
+
+  return (
+    <box
+      position="absolute"
+      top={0}
+      left={0}
+      width="100%"
+      height="100%"
+      zIndex={90}
+      alignItems="center"
+      justifyContent="center"
+    >
+      <box
+        width="72%"
+        maxWidth={90}
+        minWidth={44}
+        flexDirection="column"
+        border
+        borderColor={COLORS.accent}
+        backgroundColor={COLORS.surface}
+        paddingX={2}
+        paddingY={1}
+      >
+        <text fg={COLORS.accent}>
+          <strong>{props.picker.title}</strong>
+        </text>
+        <For each={visibleOptions()}>
+          {(row) => (
+            <text
+              fg={
+                row.option.disabled
+                  ? COLORS.muted
+                  : row.index === props.picker.selectedIndex
+                    ? COLORS.success
+                    : COLORS.text
+              }
+            >
+              {row.index === props.picker.selectedIndex ? "› " : "  "}
+              {row.option.label}
+              {row.option.description ? ` · ${row.option.description}` : ""}
+            </text>
+          )}
+        </For>
+        <text fg={COLORS.muted} marginTop={1}>
+          ↑/↓ or Ctrl+K/J · Enter select · Esc cancel
+        </text>
+      </box>
+    </box>
+  );
+}
+
 function Conversation(props: { messages: readonly UiMessage[] }) {
   const syntaxStyle = SyntaxStyle.fromStyles({
     default: { fg: COLORS.text },
@@ -153,16 +221,16 @@ export function Root(props: RootProps) {
   const [composerLines, setComposerLines] = createSignal(1);
   let composer: TextareaRenderable | undefined;
   let submitting = false;
-  let approvalWasVisible = state().approval !== undefined;
+  let overlayWasVisible = state().approval !== undefined || state().picker !== undefined;
 
   const unsubscribe = props.store.subscribe(setState);
   onCleanup(unsubscribe);
 
   createEffect(() => {
-    const approvalVisible = state().approval !== undefined;
-    if (approvalVisible) composer?.blur();
-    else if (approvalWasVisible) queueMicrotask(() => composer?.focus());
-    approvalWasVisible = approvalVisible;
+    const overlayVisible = state().approval !== undefined || state().picker !== undefined;
+    if (overlayVisible) composer?.blur();
+    else if (overlayWasVisible) queueMicrotask(() => composer?.focus());
+    overlayWasVisible = overlayVisible;
   });
 
   const visibleMessages = createMemo(() => state().messages.slice(-100));
@@ -188,7 +256,7 @@ export function Root(props: RootProps) {
           // preserve the draft when submission fails
         } finally {
           submitting = false;
-          if (!props.store.snapshot.approval) composer?.focus();
+          if (!props.store.snapshot.approval && !props.store.snapshot.picker) composer?.focus();
         }
       }, 0);
     }, 0);
@@ -206,6 +274,15 @@ export function Root(props: RootProps) {
       if (key.name === "a") decideApproval("approve_once");
       else if (key.name === "s") decideApproval("approve_session");
       else if (key.name === "d" || key.name === "escape") decideApproval("deny");
+      return;
+    }
+    if (state().picker) {
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.name === "up" || (key.ctrl && key.name === "k")) props.store.movePicker(-1);
+      else if (key.name === "down" || (key.ctrl && key.name === "j")) props.store.movePicker(1);
+      else if (key.name === "return") props.store.decidePicker(true);
+      else if (key.name === "escape") props.store.decidePicker(false);
       return;
     }
     if (key.name === "escape" && state().busy) {
@@ -301,7 +378,7 @@ export function Root(props: RootProps) {
           ref={(node) => {
             composer = node;
             queueMicrotask(() => {
-              if (!props.store.snapshot.approval) node.focus();
+              if (!props.store.snapshot.approval && !props.store.snapshot.picker) node.focus();
             });
           }}
           focused
@@ -322,7 +399,14 @@ export function Root(props: RootProps) {
         />
       </box>
 
-      <Show when={state().approval}>
+      <Show
+        when={state().approval}
+        fallback={
+          <Show when={state().picker}>
+            {(picker: () => UiPickerPrompt) => <PickerOverlay picker={picker()} />}
+          </Show>
+        }
+      >
         {(approval: () => UiApprovalPrompt) => <ApprovalOverlay approval={approval()} />}
       </Show>
     </box>

@@ -22,6 +22,7 @@ import { ToolRegistry } from "../tools/registry.ts";
 import type { TuiRuntime } from "../app.tsx";
 import { AgentUiController } from "../ui/agent-controller.ts";
 import { UiApprovalController } from "../ui/approval-controller.ts";
+import { UiPickerController } from "../ui/picker-controller.ts";
 import { UiStore } from "../ui/state.ts";
 
 export type TuiCommand = Extract<CliCommand, { readonly name: "tui" }>;
@@ -39,6 +40,7 @@ export class InteractiveRuntime {
   private controller: AgentUiController | undefined;
   private readonly tools = new ToolRegistry();
   private readonly approvalController: UiApprovalController;
+  private readonly pickerController: UiPickerController;
   private closed = false;
 
   private constructor(
@@ -50,6 +52,7 @@ export class InteractiveRuntime {
     this.paths = paths;
     this.configManager = configManager;
     this.approvalController = new UiApprovalController(store);
+    this.pickerController = new UiPickerController(store);
   }
 
   static async initialize(
@@ -128,12 +131,18 @@ export class InteractiveRuntime {
     );
   }
 
+  async openModelPicker(): Promise<void> {
+    const selected = await this.pickModel();
+    if (selected) await this.changeModel(selected);
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.controller?.cancel();
     this.controller?.dispose();
     this.approvalController.dispose();
+    this.pickerController.dispose();
     this.providerService?.close();
     await cleanupToolProcesses();
   }
@@ -295,14 +304,40 @@ export class InteractiveRuntime {
       return;
     }
     if (!specifier) {
-      this.showModels();
-      return;
+      const selected = await this.pickModel();
+      if (!selected) return;
+      specifier = selected;
     }
     const parsed = splitModelSpecifier(specifier);
     if (!parsed) throw new Error("Model must use provider/model format");
     const selection = providers.select(parsed.provider, parsed.id);
     this.activateSelection(selection);
     this.addSystem(`Selected \`${modelName(selection)}\`.`);
+  }
+
+  private async pickModel(): Promise<string | undefined> {
+    const providers = this.providerService;
+    if (!providers) {
+      this.addSystem("Model selection is unavailable with the fake provider.");
+      return undefined;
+    }
+    const models = providers.models.filter((model) => model.available);
+    if (models.length === 0) {
+      this.addSystem("No available models. Use `/login` or configure an API key.");
+      return undefined;
+    }
+    return await this.pickerController.choose({
+      title: "Select provider/model",
+      options: models.map((model) => ({
+        id: `${model.provider}/${model.id}`,
+        label: `${model.provider}/${model.id}`,
+        description:
+          model.contextWindow === null
+            ? model.api
+            : `${model.contextWindow.toLocaleString()} context · ${model.api}`,
+      })),
+      ...(providers.selected === undefined ? {} : { selectedId: modelName(providers.selected) }),
+    });
   }
 
   private async login(providerArgument: string, tui: TuiRuntime): Promise<void> {

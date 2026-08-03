@@ -8,7 +8,7 @@ const startedAt = performance.now();
 interface InteractiveController {
   submit(value: string, tui: import("./app.tsx").TuiRuntime): Promise<boolean>;
   abort(): void;
-  showModels(): void;
+  openModelPicker(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
         if (!controller) store.update({ busy: false, status: "cancelled" });
       },
       openModels(store) {
-        if (controller) controller.showModels();
+        if (controller) void controller.openModelPicker();
         else store.update({ status: "models loading" });
       },
       openSessions(store) {

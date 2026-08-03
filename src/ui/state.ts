@@ -41,6 +41,20 @@ export interface UiApprovalPrompt {
 
 export type UiApprovalDecision = "approve_once" | "approve_session" | "deny";
 
+export interface UiPickerOption {
+  id: string;
+  label: string;
+  description?: string;
+  disabled?: boolean;
+}
+
+export interface UiPickerPrompt {
+  id: string;
+  title: string;
+  options: readonly UiPickerOption[];
+  selectedIndex: number;
+}
+
 export interface UiSnapshot {
   workspace: string;
   providerModel: string;
@@ -53,16 +67,19 @@ export interface UiSnapshot {
   messages: readonly UiMessage[];
   agents: readonly UiAgentIndicator[];
   approval?: UiApprovalPrompt;
+  picker?: UiPickerPrompt;
   notice?: string;
 }
 
 export type UiListener = (snapshot: UiSnapshot) => void;
 export type UiApprovalDecisionHandler = (id: string, decision: UiApprovalDecision) => void;
+export type UiPickerDecisionHandler = (id: string, optionId: string | undefined) => void;
 
 export class UiStore {
   private current: UiSnapshot;
   private readonly listeners = new Set<UiListener>();
   private approvalDecisionHandler: UiApprovalDecisionHandler | undefined;
+  private pickerDecisionHandler: UiPickerDecisionHandler | undefined;
 
   constructor(workspace: string, mode: UiSnapshot["mode"] = "write") {
     this.current = {
@@ -159,6 +176,46 @@ export class UiStore {
     if (!approval || !handler) return false;
     handler(approval.id, decision);
     return true;
+  }
+
+  showPicker(picker: UiPickerPrompt): void {
+    this.publish({ ...this.current, picker });
+  }
+
+  movePicker(delta: number): void {
+    const picker = this.current.picker;
+    if (!picker || picker.options.length === 0 || delta === 0) return;
+    let index = picker.selectedIndex;
+    for (let attempt = 0; attempt < picker.options.length; attempt += 1) {
+      index = (index + delta + picker.options.length) % picker.options.length;
+      if (!picker.options[index]?.disabled) break;
+    }
+    this.publish({ ...this.current, picker: { ...picker, selectedIndex: index } });
+  }
+
+  decidePicker(select: boolean): boolean {
+    const picker = this.current.picker;
+    const handler = this.pickerDecisionHandler;
+    if (!picker || !handler) return false;
+    const option = select ? picker.options[picker.selectedIndex] : undefined;
+    if (option?.disabled) return false;
+    handler(picker.id, option?.id);
+    return true;
+  }
+
+  clearPicker(id?: string): void {
+    if (!this.current.picker || (id !== undefined && this.current.picker.id !== id)) return;
+    const { picker: _picker, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
+  setPickerDecisionHandler(handler: UiPickerDecisionHandler): () => void {
+    if (this.pickerDecisionHandler)
+      throw new Error("A picker decision handler is already registered");
+    this.pickerDecisionHandler = handler;
+    return () => {
+      if (this.pickerDecisionHandler === handler) this.pickerDecisionHandler = undefined;
+    };
   }
 
   private publish(snapshot: UiSnapshot): void {

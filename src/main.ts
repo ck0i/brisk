@@ -15,7 +15,7 @@ interface InteractiveController {
 
 function printHelp(): void {
   process.stdout.write(
-    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor\n  brisk bench\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
+    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor\n  brisk bench [--json]\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
   );
 }
 
@@ -34,10 +34,11 @@ async function main(): Promise<void> {
     return;
   }
   if (command.name === "bench") {
-    const { benchmarkFirstDraw } = await import("./ui/benchmark.tsx");
-    const value = await benchmarkFirstDraw();
-    if (command.json) process.stdout.write(`${JSON.stringify({ timeToFirstDrawMs: value })}\n`);
-    else process.stdout.write(`Time to first draw (headless): ${value.toFixed(2)} ms\n`);
+    const { formatBenchmarkReport, runBenchmarks } = await import("./bench/index.ts");
+    const report = await runBenchmarks();
+    process.stdout.write(
+      command.json ? `${JSON.stringify(report)}\n` : formatBenchmarkReport(report),
+    );
     return;
   }
 

@@ -34,7 +34,7 @@ export interface UiSnapshot {
   status: string;
   mode: "safe" | "write" | "yolo";
   contextTokens: number;
-  contextWindow?: number;
+  contextWindow: number | undefined;
   cost: number;
   busy: boolean;
   messages: readonly UiMessage[];
@@ -55,6 +55,7 @@ export class UiStore {
       status: "ready",
       mode,
       contextTokens: 0,
+      contextWindow: undefined,
       cost: 0,
       busy: false,
       messages: [],

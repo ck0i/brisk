@@ -4,9 +4,14 @@ import { render } from "@opentui/solid";
 import { Root } from "./ui/root.tsx";
 import { UiStore, type UiSnapshot } from "./ui/state.ts";
 
+export interface TuiRuntime {
+  runSuspended<T>(operation: () => Promise<T>): Promise<T>;
+  exit(): void;
+}
+
 export interface TuiHandlers {
-  initialize?: (store: UiStore) => void | Promise<void>;
-  submit: (value: string, store: UiStore) => boolean | Promise<boolean>;
+  initialize?: (store: UiStore, runtime: TuiRuntime) => void | Promise<void>;
+  submit: (value: string, store: UiStore, runtime: TuiRuntime) => boolean | Promise<boolean>;
   abort?: (store: UiStore) => void;
   openModels?: (store: UiStore) => void;
   openSessions?: (store: UiStore) => void;
@@ -43,6 +48,18 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
     resolveExit = resolve;
   });
   const exit = (): void => resolveExit?.();
+  const runtime: TuiRuntime = {
+    async runSuspended<T>(operation: () => Promise<T>): Promise<T> {
+      renderer.suspend();
+      try {
+        return await operation();
+      } finally {
+        renderer.resume();
+        renderer.requestRender();
+      }
+    },
+    exit,
+  };
   const firstFrame = onceFrame(renderer);
 
   const onSignal = (): void => {
@@ -61,7 +78,7 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
       () => (
         <Root
           store={store}
-          onSubmit={(value) => options.handlers.submit(value, store)}
+          onSubmit={(value) => options.handlers.submit(value, store, runtime)}
           onAbort={() => options.handlers.abort?.(store)}
           onExit={exit}
           onOpenModels={() => options.handlers.openModels?.(store)}
@@ -74,10 +91,12 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
     const timeToFirstDrawMs = performance.now() - options.startedAt;
 
     queueMicrotask(() => {
-      void Promise.resolve(options.handlers.initialize?.(store)).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        store.update({ status: "initialization failed", notice: message });
-      });
+      void Promise.resolve(options.handlers.initialize?.(store, runtime)).catch(
+        (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          store.update({ status: "initialization failed", notice: message });
+        },
+      );
     });
 
     await exited;

@@ -5,6 +5,7 @@ import { TerminalAuthPrompter } from "../cli/auth-prompter.ts";
 import { ConfigManager } from "../config/manager.ts";
 import { ensureConfigDirectories, resolveConfigPaths, type ConfigPaths } from "../config/paths.ts";
 import type { ConfigOverrides } from "../config/schema.ts";
+import { ContextManager, type ContextInspection, type ContextModel } from "../context/index.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
 import type { Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
@@ -42,6 +43,8 @@ export class InteractiveRuntime {
   private sessionRuntime: SessionRuntime | undefined;
   private controller: AgentUiController | undefined;
   private agentLoop: AgentLoop | undefined;
+  private contextManager: ContextManager | undefined;
+  private compactionController: AbortController | undefined;
   private tools = new ToolRegistry();
   private readonly approvalController: UiApprovalController;
   private readonly pickerController: UiPickerController;
@@ -114,6 +117,7 @@ export class InteractiveRuntime {
   }
 
   abort(): void {
+    this.compactionController?.abort(new DOMException("Cancelled", "AbortError"));
     this.controller?.cancel();
     if (!this.controller) this.store.update({ busy: false, status: "cancelled" });
   }
@@ -149,6 +153,7 @@ export class InteractiveRuntime {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.compactionController?.abort(new DOMException("Closing", "AbortError"));
     this.controller?.cancel();
     this.controller?.dispose();
     this.approvalController.dispose();
@@ -185,6 +190,47 @@ export class InteractiveRuntime {
       permissionMode: this.configManager.current.permissionMode,
       approvalHandler: this.approvalController,
     });
+  }
+
+  private createContextManager(model: ContextModel): ContextManager {
+    const session = this.requireSessionRuntime();
+    const compaction = this.configManager.current.compaction;
+    const manager = new ContextManager({
+      model,
+      recentTargetTokens: compaction.keepRecentTokens,
+      thresholdPercent: compaction.thresholdPercent,
+      initialMessages: session.messages,
+      initialCompactionCount: session.metadata.compactionCount,
+      ...(session.previousCompaction === undefined
+        ? {}
+        : { previousCompaction: session.previousCompaction }),
+      persist: async (entry) => {
+        this.store.update({ status: "compacting context" });
+        await session.recordCompaction(entry.compaction);
+        this.store.update({ status: "context compacted" });
+      },
+      resolveModel: (specifier) => this.resolveContextModel(specifier),
+    });
+    this.contextManager = manager;
+    return manager;
+  }
+
+  private resolveContextModel(specifier: string): ContextModel | undefined {
+    const parsed = splitModelSpecifier(specifier);
+    if (!parsed) return undefined;
+    const record = this.providerService?.registry.select(parsed.provider, parsed.id);
+    const upstream = this.providerService?.registry.resolveUpstreamModel(
+      parsed.provider,
+      parsed.id,
+    );
+    if (!record || !upstream) return undefined;
+    return {
+      provider: record.provider,
+      api: upstream.api,
+      model: specifier,
+      contextWindow: record.contextWindow,
+      supportsImages: record.input.includes("image"),
+    };
   }
 
   private async initializeProviderService(): Promise<void> {
@@ -264,12 +310,20 @@ export class InteractiveRuntime {
       },
     });
     const session = this.requireSessionRuntime();
+    const contextManager = this.createContextManager({
+      provider: "fake",
+      api: "openai-completions",
+      model: "fake/brisk-demo",
+      contextWindow: 64_000,
+      supportsImages: false,
+    });
     const loop = new AgentLoop({
       provider,
       tools: this.tools,
       model: "fake/brisk-demo",
       initialMessages: session.messages,
       initialUsage: session.usage,
+      contextLifecycle: contextManager,
     });
     this.installAgentLoop(loop);
     if (session.selectedModelSpecifier !== "fake/brisk-demo") {
@@ -287,6 +341,9 @@ export class InteractiveRuntime {
     const session = this.requireSessionRuntime();
     const selectedName = modelName(selection);
     providers.setSessionId(session.sessionId);
+    const contextModel = contextModelForSelection(selection);
+    const contextManager = this.contextManager ?? this.createContextManager(contextModel);
+    contextManager.setModel(contextModel);
     if (!this.agentLoop) {
       this.installAgentLoop(
         new AgentLoop({
@@ -295,6 +352,7 @@ export class InteractiveRuntime {
           model: selectedName,
           initialMessages: session.messages,
           initialUsage: session.usage,
+          contextLifecycle: contextManager,
         }),
       );
     } else {
@@ -421,6 +479,7 @@ export class InteractiveRuntime {
     this.controller?.dispose();
     this.controller = undefined;
     this.agentLoop = undefined;
+    this.contextManager = undefined;
     await cleanupToolProcesses();
   }
 
@@ -449,6 +508,12 @@ export class InteractiveRuntime {
         return true;
       case "/model":
         await this.changeModel(argument);
+        return true;
+      case "/compact":
+        await this.compactContext();
+        return true;
+      case "/context":
+        this.showContext();
         return true;
       case "/new":
         await this.createNewSession();
@@ -482,6 +547,44 @@ export class InteractiveRuntime {
         this.addSystem(`Unknown command: \`${name}\`. Use \`/help\`.`);
         return true;
     }
+  }
+
+  private async compactContext(): Promise<void> {
+    const manager = this.contextManager;
+    const loop = this.agentLoop;
+    if (!manager || !loop) {
+      this.addSystem("Context management is unavailable until a model is selected.");
+      return;
+    }
+    if (this.store.snapshot.busy) {
+      this.addSystem("Abort active work before compacting context manually.");
+      return;
+    }
+    const controller = new AbortController();
+    this.compactionController = controller;
+    this.store.update({ busy: true, status: "compacting context" });
+    try {
+      const inspection = await manager.compactNow(loop.messages, controller.signal);
+      this.store.update({ contextTokens: inspection.currentUseTokens });
+      this.addSystem(formatContextInspection(inspection));
+    } catch (error) {
+      if (!controller.signal.aborted) throw error;
+      this.addSystem("Context compaction cancelled.");
+    } finally {
+      if (this.compactionController === controller) this.compactionController = undefined;
+      this.store.update({ busy: false, status: "ready" });
+    }
+  }
+
+  private showContext(): void {
+    const manager = this.contextManager;
+    if (!manager) {
+      this.addSystem("Context management is unavailable until a model is selected.");
+      return;
+    }
+    const inspection = manager.inspect(this.agentLoop?.messages);
+    this.store.update({ contextTokens: inspection.currentUseTokens });
+    this.addSystem(formatContextInspection(inspection));
   }
 
   private async changeModel(specifier: string): Promise<void> {
@@ -691,6 +794,32 @@ async function chooseFrom(
 
 function modelName(selection: ModelSelection): string {
   return `${selection.record.provider}/${selection.record.id}`;
+}
+
+function contextModelForSelection(selection: ModelSelection): ContextModel {
+  return {
+    provider: selection.record.provider,
+    api: selection.upstream.api,
+    model: modelName(selection),
+    contextWindow: selection.record.contextWindow,
+    supportsImages: selection.record.input.includes("image"),
+  };
+}
+
+function formatContextInspection(inspection: ContextInspection): string {
+  const window = inspection.contextWindow?.toLocaleString() ?? "unknown";
+  const threshold = inspection.nextThresholdTokens?.toLocaleString() ?? "unknown";
+  return [
+    "**Context**",
+    `- provider/model: \`${inspection.provider}/${inspection.model}\``,
+    `- estimated use: ${inspection.currentUseTokens.toLocaleString()} / ${window} tokens`,
+    `- text estimate: ${inspection.textEstimateTokens.toLocaleString()} tokens`,
+    `- compacted images: ${inspection.compactedImageEstimateTokens.toLocaleString()} tokens`,
+    `- recent messages retained: ${inspection.recentRetainedMessages}`,
+    `- compactions: ${inspection.compactionCount}`,
+    `- next threshold: ${threshold}`,
+    `- mode: ${inspection.fallbackMode}`,
+  ].join("\n");
 }
 
 function helpText(): string {

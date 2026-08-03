@@ -4,6 +4,7 @@ import { AgentSessionRecorder } from "../sessions/agent-recorder.ts";
 import { SessionRepository } from "../sessions/repository.ts";
 import {
   canonicalWorkspace,
+  type CompactionMetadata,
   type InterruptedAssistantDiagnostic,
   type LoadedSession,
   type SessionIndexRecord,
@@ -99,6 +100,14 @@ export class SessionRuntime {
     return `${this.options.artifactsDir}/${this.sessionId}`;
   }
 
+  get previousCompaction(): CompactionMetadata | undefined {
+    for (let index = this.currentValue.entries.length - 1; index >= 0; index -= 1) {
+      const entry = this.currentValue.entries[index];
+      if (entry?.type === "compaction") return entry.compaction;
+    }
+    return undefined;
+  }
+
   get selectedModelSpecifier(): string | undefined {
     const { selectedProvider, selectedModel } = this.metadata;
     return selectedProvider === "unselected" || selectedModel === "unselected"
@@ -116,6 +125,16 @@ export class SessionRuntime {
     });
     recorder.attach(loop);
     this.recorder = recorder;
+  }
+
+  async recordCompaction(compaction: CompactionMetadata): Promise<void> {
+    if (this.recorder) {
+      this.recorder.append({ type: "compaction", compaction });
+      await this.recorder.flush();
+    } else {
+      await this.repository.append(this.sessionId, { type: "compaction", compaction });
+    }
+    this.currentValue = await this.repository.open(this.sessionId);
   }
 
   async recordModelChange(provider: string, model: string): Promise<void> {

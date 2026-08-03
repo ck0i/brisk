@@ -90,7 +90,7 @@ export interface SubagentManagerOptions {
   readonly childSessionFactory?: (
     context: ChildSessionAdapterContext,
   ) => ChildSessionAdapter | Promise<ChildSessionAdapter>;
-  readonly childToolsFactory?: (context: ChildToolContext) => ToolRegistry;
+  readonly childToolsFactory?: (context: ChildToolContext) => ToolRegistry | Promise<ToolRegistry>;
   readonly createChildSessionId?: () => string;
 }
 

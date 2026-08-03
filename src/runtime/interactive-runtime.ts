@@ -18,11 +18,12 @@ import {
   splitModelSpecifier,
   type ModelSelection,
 } from "../providers/provider-service.ts";
-import { registerCodingTools } from "../tools/coding-tools.ts";
+import { registerCodingTools, type CodingToolServices } from "../tools/coding-tools.ts";
 import { cleanupToolProcesses } from "../tools/process-registry.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import type { TuiRuntime } from "../app.tsx";
 import { SessionRuntime } from "./session-runtime.ts";
+import { RuntimeSubagents } from "./subagent-runtime.ts";
 import { AgentUiController } from "../ui/agent-controller.ts";
 import { UiApprovalController } from "../ui/approval-controller.ts";
 import { UiPickerController } from "../ui/picker-controller.ts";
@@ -46,6 +47,8 @@ export class InteractiveRuntime {
   private contextManager: ContextManager | undefined;
   private compactionController: AbortController | undefined;
   private tools = new ToolRegistry();
+  private codingServices: CodingToolServices | undefined;
+  private subagents: RuntimeSubagents | undefined;
   private readonly approvalController: UiApprovalController;
   private readonly pickerController: UiPickerController;
   private closed = false;
@@ -156,6 +159,7 @@ export class InteractiveRuntime {
     this.compactionController?.abort(new DOMException("Closing", "AbortError"));
     this.controller?.cancel();
     this.controller?.dispose();
+    this.subagents?.dispose();
     this.approvalController.dispose();
     this.pickerController.dispose();
     await this.sessionRuntime?.close();
@@ -184,7 +188,7 @@ export class InteractiveRuntime {
 
   private async initializeCodingTools(): Promise<void> {
     const session = this.requireSessionRuntime();
-    await registerCodingTools(this.tools, {
+    this.codingServices = await registerCodingTools(this.tools, {
       workspace: this.options.workspace,
       artifactsDirectory: session.artifactDirectory,
       permissionMode: this.configManager.current.permissionMode,
@@ -330,6 +334,7 @@ export class InteractiveRuntime {
       await session.recordModelChange("fake", "brisk-demo");
     }
     this.store.update({ providerModel: "fake/brisk-demo", status: "ready" });
+    await this.initializeSubagents("fake/brisk-demo");
   }
 
   private async activateSelection(selection: ModelSelection): Promise<void> {
@@ -366,6 +371,43 @@ export class InteractiveRuntime {
       contextWindow: selection.record.contextWindow ?? undefined,
       status: "ready",
     });
+    await this.initializeSubagents(selectedName);
+  }
+
+  private async initializeSubagents(defaultModel: string): Promise<void> {
+    if (this.subagents) return;
+    if (
+      this.configManager.current.maxSubagents === 0 ||
+      this.configManager.current.maxSubagentDepth === 0
+    ) {
+      return;
+    }
+    const parentLoop = this.agentLoop;
+    const contextManager = this.contextManager;
+    const codingServices = this.codingServices;
+    const session = this.sessionRuntime;
+    if (!parentLoop || !contextManager || !codingServices || !session) {
+      throw new Error("Parent agent is not ready for subagents");
+    }
+    const runtime = RuntimeSubagents.create({
+      workspace: this.options.workspace,
+      checkpointDirectory: `${this.paths.dataRoot}/checkpoints`,
+      artifactsDirectory: this.paths.artifactsDir,
+      defaultModel,
+      maxConcurrency: this.configManager.current.maxSubagents,
+      maxDepth: this.configManager.current.maxSubagentDepth,
+      permissionMode: this.configManager.current.permissionMode,
+      approvalHandler: this.approvalController,
+      permissions: codingServices.permissions,
+      ...(this.providerService === undefined ? {} : { providerService: this.providerService }),
+      fakeProvider: this.options.command.fakeProvider,
+      parentLoop,
+      contextManager,
+      session,
+      store: this.store,
+    });
+    this.subagents = runtime;
+    this.tools.register(runtime.taskTool);
   }
 
   private installAgentLoop(loop: AgentLoop): void {
@@ -475,6 +517,8 @@ export class InteractiveRuntime {
   }
 
   private async teardownAgent(): Promise<void> {
+    this.subagents?.dispose();
+    this.subagents = undefined;
     this.controller?.cancel();
     this.controller?.dispose();
     this.controller = undefined;
@@ -514,6 +558,9 @@ export class InteractiveRuntime {
         return true;
       case "/context":
         this.showContext();
+        return true;
+      case "/agents":
+        if (!this.subagents?.openPanel()) this.addSystem("No child agents are active yet.");
         return true;
       case "/new":
         await this.createNewSession();

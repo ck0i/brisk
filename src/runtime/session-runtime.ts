@@ -4,6 +4,7 @@ import { AgentSessionRecorder } from "../sessions/agent-recorder.ts";
 import { SessionRepository } from "../sessions/repository.ts";
 import {
   canonicalWorkspace,
+  type ChildSessionReference,
   type CompactionMetadata,
   type InterruptedAssistantDiagnostic,
   type LoadedSession,
@@ -125,6 +126,11 @@ export class SessionRuntime {
     });
     recorder.attach(loop);
     this.recorder = recorder;
+  }
+
+  async recordChild(child: ChildSessionReference): Promise<void> {
+    await this.repository.append(this.sessionId, { type: "child_session", child });
+    this.currentValue = await this.repository.open(this.sessionId);
   }
 
   async recordCompaction(compaction: CompactionMetadata): Promise<void> {

@@ -18,6 +18,8 @@ import type {
   TaskResult,
 } from "./types.ts";
 
+export type SubagentManagerListener = (info: ChildSessionInfo) => void;
+
 /** Runs private child continuations over shared immutable context checkpoints. */
 export class SubagentManager {
   private readonly checkpointStore: CheckpointStore;
@@ -31,6 +33,7 @@ export class SubagentManager {
   private readonly semaphore: Semaphore;
   private readonly sessions = new Map<string, ChildSession>();
   private readonly pendingCheckpoints = new Map<CheckpointFactory, Promise<Checkpoint>>();
+  private readonly listeners = new Set<SubagentManagerListener>();
 
   constructor(options: SubagentManagerOptions) {
     this.checkpointStore = options.checkpointStore;
@@ -55,6 +58,11 @@ export class SubagentManager {
 
   get depthLimit(): number {
     return this.maxDepth;
+  }
+
+  subscribe(listener: SubagentManagerListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   run(input: TaskInput, options: SubagentRunOptions = {}): Promise<TaskResult> {
@@ -95,6 +103,7 @@ export class SubagentManager {
             childSessionId: session.childSessionId,
           };
           session.finish(result);
+          this.publish(session);
           return result;
         });
       }
@@ -110,6 +119,7 @@ export class SubagentManager {
     if (!session) return false;
     if (!isPending(session.status)) return false;
     session.cancel();
+    this.publish(session);
     return true;
   }
 
@@ -177,6 +187,7 @@ export class SubagentManager {
       depth,
     });
     this.sessions.set(childSessionId, session);
+    this.publish(session);
     return session;
   }
 
@@ -199,6 +210,7 @@ export class SubagentManager {
       release = await this.semaphore.acquire(session.controller.signal);
       throwIfAborted(session.controller.signal);
       session.markRunning();
+      this.publish(session);
 
       const providerContext = providerContextFor(session);
       if (this.childSessionFactory) {
@@ -214,7 +226,10 @@ export class SubagentManager {
 
       let loop: AgentLoop | undefined;
       const tools = this.childToolsFactory
-        ? this.childToolsFactory({ ...providerContext, checkpointId: session.checkpoint.id })
+        ? await this.childToolsFactory({
+            ...providerContext,
+            checkpointId: session.checkpoint.id,
+          })
         : new ToolRegistry();
       if (session.depth < this.maxDepth) {
         tools.register(
@@ -284,7 +299,13 @@ export class SubagentManager {
       childSessionId: session.childSessionId,
     };
     session.finish(finalResult, cancelled);
+    this.publish(session);
     return finalResult;
+  }
+
+  private publish(session: ChildSession): void {
+    const info = session.inspect();
+    for (const listener of this.listeners) listener(info);
   }
 }
 

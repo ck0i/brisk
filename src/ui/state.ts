@@ -22,6 +22,11 @@ export interface UiMessage {
 
 export type UiAgentStatus = "queued" | "running" | "completed" | "blocked" | "failed" | "cancelled";
 
+export interface UiAgentTranscriptLine {
+  role: "user" | "assistant" | "tool";
+  content: string;
+}
+
 export interface UiAgentIndicator {
   id: string;
   description: string;
@@ -32,6 +37,7 @@ export interface UiAgentIndicator {
   inputTokens: number;
   outputTokens: number;
   childSessionId: string;
+  transcript?: readonly UiAgentTranscriptLine[];
   summary?: string;
   error?: string;
 }

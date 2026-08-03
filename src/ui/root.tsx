@@ -321,9 +321,16 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
                 </text>
                 <text fg={COLORS.muted}>session · {agent().childSessionId}</text>
                 <text fg={COLORS.muted}>
-                  transcript · child session metadata ·{" "}
+                  transcript · private continuation ·{" "}
                   {(agent().inputTokens + agent().outputTokens).toLocaleString()} tokens
                 </text>
+                <For each={(agent().transcript ?? []).slice(-6)}>
+                  {(line) => (
+                    <text fg={line.role === "assistant" ? COLORS.accent : COLORS.text}>
+                      {line.role} · {line.content.replaceAll(/\s+/g, " ").slice(0, 180)}
+                    </text>
+                  )}
+                </For>
                 <Show when={agent().summary}>
                   {(summary: () => string) => (
                     <text fg={COLORS.success}>summary · {summary()}</text>

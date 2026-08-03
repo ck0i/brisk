@@ -21,12 +21,15 @@ import {
 } from "./registry.ts";
 import { createSearchTool } from "./search.ts";
 
+export type CodingToolName = "read" | "edit" | "write" | "search" | "find" | "list" | "bash";
+
 export interface CodingToolsOptions {
   readonly workspace: string;
   readonly artifactsDirectory: string;
   readonly permissionMode: PermissionMode;
   readonly approvalHandler: ApprovalHandler;
   readonly knownSecretValues?: readonly string[];
+  readonly enabledTools?: readonly CodingToolName[];
 }
 
 export interface CodingToolServices {
@@ -62,13 +65,28 @@ export async function registerCodingTools(
       mediaType: "text/plain; charset=utf-8",
     });
 
-  registry.register(createReadTool(hashline, limiter("read")));
-  registry.register(createEditTool(hashline, permissions, limiter("edit")));
-  registry.register(createWriteTool(hashline, permissions, limiter("write")));
-  registry.register(withOutputLimit(createSearchTool(options.workspace), limiter("search")));
-  registry.register(withOutputLimit(createFindTool(options.workspace), limiter("find")));
-  registry.register(withOutputLimit(createListTool(options.workspace), limiter("list")));
-  registry.register(createAuthorizedBashTool(options.workspace, artifacts, permissions));
+  const enabled = new Set<CodingToolName>(
+    options.enabledTools ?? ["read", "edit", "write", "search", "find", "list", "bash"],
+  );
+  if (enabled.has("read")) registry.register(createReadTool(hashline, limiter("read")));
+  if (enabled.has("edit")) {
+    registry.register(createEditTool(hashline, permissions, limiter("edit")));
+  }
+  if (enabled.has("write")) {
+    registry.register(createWriteTool(hashline, permissions, limiter("write")));
+  }
+  if (enabled.has("search")) {
+    registry.register(withOutputLimit(createSearchTool(options.workspace), limiter("search")));
+  }
+  if (enabled.has("find")) {
+    registry.register(withOutputLimit(createFindTool(options.workspace), limiter("find")));
+  }
+  if (enabled.has("list")) {
+    registry.register(withOutputLimit(createListTool(options.workspace), limiter("list")));
+  }
+  if (enabled.has("bash")) {
+    registry.register(createAuthorizedBashTool(options.workspace, artifacts, permissions));
+  }
 
   return { artifacts, hashline, permissions };
 }

@@ -28,6 +28,11 @@ export interface ModelSelection {
   readonly upstream: Model<Api>;
 }
 
+export interface IsolatedProviderSelection extends ModelSelection {
+  readonly provider: PiAiProvider;
+  readonly modelSpecifier: string;
+}
+
 export type ProviderServiceListener = (selection: ModelSelection | undefined) => void;
 
 /** Combines upstream auth resolution with per-provider custom endpoint configuration. */
@@ -171,15 +176,34 @@ export class ProviderService {
     }
   }
 
+  createIsolatedProvider(
+    modelSpecifier: string | undefined,
+    sessionId: string,
+  ): IsolatedProviderSelection {
+    this.assertOpen();
+    const parsed = modelSpecifier === undefined ? undefined : splitModelSpecifier(modelSpecifier);
+    if (modelSpecifier !== undefined && !parsed) {
+      throw new Error("Model must use provider/model format");
+    }
+    const selected = parsed ? this.selectionFor(parsed.provider, parsed.id) : this.selectedValue;
+    if (!selected) throw new Error("No provider model is selected for the child session");
+    const resolvedSpecifier = `${selected.record.provider}/${selected.record.id}`;
+    return {
+      ...selected,
+      provider: new PiAiProvider({
+        model: selected.upstream,
+        auth: this.credentials,
+        sessionId,
+      }),
+      modelSpecifier: resolvedSpecifier,
+    };
+  }
+
   select(provider: string, id: string): ModelSelection {
     this.assertOpen();
-    const record = this.registry.select(provider, id);
-    if (!record) throw new Error(`Unknown model: ${provider}/${id}`);
-    if (!record.available) throw new Error(`Model is unavailable: ${provider}/${id}`);
-    const upstream = this.registry.resolveUpstreamModel(provider, id);
-    if (!upstream) throw new Error(`Model metadata is still loading: ${provider}/${id}`);
-
-    this.selectedValue = { record, upstream };
+    const selection = this.selectionFor(provider, id);
+    const { upstream } = selection;
+    this.selectedValue = selection;
     if (this.transportValue) this.transportValue.setModel(upstream);
     else {
       this.transportValue = new PiAiProvider({
@@ -190,6 +214,15 @@ export class ProviderService {
     }
     this.publish();
     return this.selectedValue;
+  }
+
+  private selectionFor(provider: string, id: string): ModelSelection {
+    const record = this.registry.select(provider, id);
+    if (!record) throw new Error(`Unknown model: ${provider}/${id}`);
+    if (!record.available) throw new Error(`Model is unavailable: ${provider}/${id}`);
+    const upstream = this.registry.resolveUpstreamModel(provider, id);
+    if (!upstream) throw new Error(`Model metadata is still loading: ${provider}/${id}`);
+    return { record, upstream };
   }
 
   close(): void {

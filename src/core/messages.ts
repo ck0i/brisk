@@ -28,6 +28,11 @@ export interface AssistantMessage {
   readonly thinking?: string;
   readonly toolCalls: readonly ToolCall[];
   readonly usage?: Usage;
+  /** upstream identity retained for correct cross-model history translation */
+  readonly provider?: string;
+  readonly api?: string;
+  readonly model?: string;
+  readonly timestamp?: number;
 }
 
 export interface ToolResultMessage {

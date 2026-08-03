@@ -64,7 +64,14 @@ function defaultRetryable(kind: NormalizedProviderErrorKind): boolean {
 }
 
 export type ProviderEvent =
-  | { readonly type: "response_start"; readonly id?: string }
+  | {
+      readonly type: "response_start";
+      readonly id?: string;
+      readonly provider?: string;
+      readonly api?: string;
+      readonly model?: string;
+      readonly timestamp?: number;
+    }
   | { readonly type: "text_delta"; readonly delta: string }
   | { readonly type: "thinking_delta"; readonly delta: string }
   | {

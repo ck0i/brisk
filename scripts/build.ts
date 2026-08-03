@@ -12,7 +12,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 
 const ROOT = resolve(import.meta.dir, "..");
 const DIST = join(ROOT, "dist");
@@ -71,6 +71,11 @@ const TARGET_DESCRIPTORS: Readonly<Record<SupportedTarget, TargetDescriptor>> = 
     openTuiLibrary: "opentui.dll",
   },
 };
+
+function openTuiNativePackages(descriptor: TargetDescriptor): readonly string[] {
+  const base = `@opentui/core-${descriptor.platform}-${descriptor.arch}`;
+  return descriptor.platform === "linux" ? [base, `${base}-musl`] : [base];
+}
 
 interface PackageMetadata {
   readonly name: string;
@@ -217,7 +222,7 @@ async function buildTarget(metadata: PackageMetadata, target: SupportedTarget): 
     nativePackageRoot = await prepareNativePackages(descriptor);
     await copyReleaseDocuments(releaseDirectory);
     await copyRuntimeAssets(releaseDirectory, descriptor, nativePackageRoot);
-    await compileExecutable(releaseDirectory, target, descriptor.executable);
+    await compileExecutable(releaseDirectory, target, descriptor.executable, nativePackageRoot);
     await writeReleaseMetadata(metadata, target, descriptor.executable, releaseDirectory);
   } catch (error) {
     await rm(releaseDirectory, { recursive: true, force: true });
@@ -233,10 +238,15 @@ async function buildTarget(metadata: PackageMetadata, target: SupportedTarget): 
 }
 
 async function prepareNativePackages(descriptor: TargetDescriptor): Promise<string | undefined> {
-  const openTuiPackage = `@opentui/core-${descriptor.platform}-${descriptor.arch}`;
+  const openTuiPackages = openTuiNativePackages(descriptor);
   const piNativesPackage = `@oh-my-pi/pi-natives-${descriptor.platform}-${descriptor.arch}`;
+  const installedOpenTui = await Promise.all(
+    openTuiPackages.map(
+      async (packageName) => await packageDirectoryExists(join(ROOT, "node_modules"), packageName),
+    ),
+  );
   if (
-    (await packageDirectoryExists(join(ROOT, "node_modules"), openTuiPackage)) &&
+    installedOpenTui.every(Boolean) &&
     (await packageDirectoryExists(join(ROOT, "node_modules"), piNativesPackage))
   ) {
     return undefined;
@@ -259,7 +269,7 @@ async function prepareNativePackages(descriptor: TargetDescriptor): Promise<stri
         "--ignore-scripts",
         `--os=${descriptor.installOs}`,
         `--cpu=${descriptor.arch}`,
-        `${openTuiPackage}@${openTuiVersion}`,
+        ...openTuiPackages.map((packageName) => `${packageName}@${openTuiVersion}`),
         `${piNativesPackage}@${piNativesVersion}`,
       ],
       temporaryRoot,
@@ -315,17 +325,18 @@ async function copyRuntimeAssets(
   const nodeModules = temporaryRoot
     ? join(temporaryRoot, "node_modules")
     : join(ROOT, "node_modules");
-  const openTuiPackage = `@opentui/core-${descriptor.platform}-${descriptor.arch}`;
-  const openTuiDirectory = join(nodeModules, ...openTuiPackage.split("/"));
-  const openTuiLibrary = join(openTuiDirectory, descriptor.openTuiLibrary);
-  await requirePath(openTuiLibrary, `${openTuiPackage} native library`);
-  const openTuiDestination = join(
-    assetRoot,
-    ...openTuiPackage.split("/"),
-    descriptor.openTuiLibrary,
-  );
-  await mkdir(dirname(openTuiDestination), { recursive: true });
-  await copyFile(openTuiLibrary, openTuiDestination);
+  for (const openTuiPackage of openTuiNativePackages(descriptor)) {
+    const openTuiDirectory = join(nodeModules, ...openTuiPackage.split("/"));
+    const openTuiLibrary = join(openTuiDirectory, descriptor.openTuiLibrary);
+    await requirePath(openTuiLibrary, `${openTuiPackage} native library`);
+    const openTuiDestination = join(
+      assetRoot,
+      ...openTuiPackage.split("/"),
+      descriptor.openTuiLibrary,
+    );
+    await mkdir(dirname(openTuiDestination), { recursive: true });
+    await copyFile(openTuiLibrary, openTuiDestination);
+  }
 
   const piNativesPackage = `@oh-my-pi/pi-natives-${descriptor.platform}-${descriptor.arch}`;
   const piNativesDirectory = join(nodeModules, ...piNativesPackage.split("/"));
@@ -344,6 +355,7 @@ async function compileExecutable(
   releaseDirectory: string,
   target: SupportedTarget,
   executableName: string,
+  nativePackageRoot: string | undefined,
 ): Promise<void> {
   const entryPath = join(releaseDirectory, ".brisk-build-entry.ts");
   const sourcePath = join(ROOT, "src", "main.ts");
@@ -374,6 +386,14 @@ async function compileExecutable(
       ],
       ROOT,
       `compile ${target}`,
+      nativePackageRoot === undefined
+        ? undefined
+        : {
+            ...process.env,
+            NODE_PATH: [join(nativePackageRoot, "node_modules"), process.env.NODE_PATH]
+              .filter((value): value is string => value !== undefined && value.length > 0)
+              .join(delimiter),
+          },
     );
     if (process.platform !== "win32") await chmod(executablePath, 0o755);
   } finally {
@@ -451,12 +471,13 @@ async function runCommand(
   command: readonly string[],
   cwd: string,
   description: string,
+  environment: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   const child = Bun.spawn([...command], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
-    env: process.env,
+    env: environment,
   });
   const [exitCode, stdout, stderr] = await Promise.all([
     child.exited,

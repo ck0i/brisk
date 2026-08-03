@@ -34,18 +34,7 @@ export interface RootProps {
   onOpenSessions?: () => void;
 }
 
-function MessageBody(props: { message: UiMessage }) {
-  const style = SyntaxStyle.fromStyles({
-    default: { fg: COLORS.text },
-    keyword: { fg: "#ff7b72", bold: true },
-    string: { fg: "#a5d6ff" },
-    comment: { fg: COLORS.muted, italic: true },
-    function: { fg: "#d2a8ff" },
-    type: { fg: "#ffa657" },
-    variable: { fg: COLORS.text },
-  });
-  onCleanup(() => style.destroy());
-
+function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
   return (
     <box flexDirection="column" marginBottom={1} width="100%">
       <text fg={props.message.role === "user" ? COLORS.user : COLORS.accent}>
@@ -58,7 +47,7 @@ function MessageBody(props: { message: UiMessage }) {
       <Show when={props.message.content.length > 0}>
         <markdown
           content={props.message.content}
-          syntaxStyle={style}
+          syntaxStyle={props.syntaxStyle}
           streaming={props.message.streaming ?? false}
           conceal
           concealCode={false}
@@ -81,6 +70,25 @@ function MessageBody(props: { message: UiMessage }) {
         <text fg={COLORS.error}>{props.message.error}</text>
       </Show>
     </box>
+  );
+}
+
+function Conversation(props: { messages: readonly UiMessage[] }) {
+  const syntaxStyle = SyntaxStyle.fromStyles({
+    default: { fg: COLORS.text },
+    keyword: { fg: "#ff7b72", bold: true },
+    string: { fg: "#a5d6ff" },
+    comment: { fg: COLORS.muted, italic: true },
+    function: { fg: "#d2a8ff" },
+    type: { fg: "#ffa657" },
+    variable: { fg: COLORS.text },
+  });
+  onCleanup(() => syntaxStyle.destroy());
+
+  return (
+    <For each={props.messages}>
+      {(message) => <MessageBody message={message} syntaxStyle={syntaxStyle} />}
+    </For>
   );
 }
 
@@ -112,6 +120,8 @@ export function Root(props: RootProps) {
             composer?.clear();
             setComposerLines(1);
           }
+        } catch {
+          // preserve the draft when submission fails
         } finally {
           submitting = false;
           composer?.focus();
@@ -170,7 +180,7 @@ export function Root(props: RootProps) {
             <text fg={COLORS.muted}>Ask Brisk to inspect, explain, or change this workspace.</text>
           }
         >
-          <For each={visibleMessages()}>{(message) => <MessageBody message={message} />}</For>
+          <Conversation messages={visibleMessages()} />
         </Show>
       </scrollbox>
 

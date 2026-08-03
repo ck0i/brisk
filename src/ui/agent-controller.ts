@@ -186,11 +186,13 @@ export class AgentUiController {
           if (!owner) break;
           const card = owner.tools?.find((candidate) => candidate.id === event.message.toolCallId);
           if (!card) break;
+          const diff = extractUnifiedDiff(event.message.content);
           const updated: UiToolCard = {
             ...card,
             status: event.message.isError ? "failed" : "completed",
             summary: summarize(event.message.content),
             output: event.message.content,
+            ...(diff === undefined ? {} : { diff }),
           };
           const tools = upsertCard(owner.tools, updated);
           messages[ownerIndex] = { ...owner, tools };
@@ -248,4 +250,10 @@ function summarize(content: string): string {
   const firstLine = content.split("\n", 1)[0] ?? "";
   const normalized = firstLine.replaceAll(/\s+/g, " ").trim();
   return normalized.length <= 100 ? normalized : `${normalized.slice(0, 97)}...`;
+}
+
+function extractUnifiedDiff(content: string): string | undefined {
+  const direct = content.startsWith("--- ") ? 0 : content.indexOf("\n--- ") + 1;
+  if (direct < 0 || !content.slice(direct).includes("\n+++ ")) return undefined;
+  return content.slice(direct);
 }

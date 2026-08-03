@@ -15,6 +15,7 @@ export interface UiMessage {
   role: UiMessageRole;
   content: string;
   thinking?: string;
+  thinkingExpanded?: boolean;
   streaming?: boolean;
   error?: string;
   tools?: UiToolCard[];
@@ -171,6 +172,32 @@ export class UiStore {
 
   clearMessages(): void {
     this.publish({ ...this.current, messages: [] });
+  }
+
+  toggleLatestDisclosure(): boolean {
+    const messages = [...this.current.messages];
+    for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+      const message = messages[messageIndex];
+      if (!message) continue;
+      const tools = [...(message.tools ?? [])];
+      for (let toolIndex = tools.length - 1; toolIndex >= 0; toolIndex -= 1) {
+        const tool = tools[toolIndex];
+        if (!tool || (!tool.output && !tool.diff)) continue;
+        tools[toolIndex] = { ...tool, expanded: !tool.expanded };
+        messages[messageIndex] = { ...message, tools };
+        this.publish({ ...this.current, messages });
+        return true;
+      }
+      if (message.thinking) {
+        messages[messageIndex] = {
+          ...message,
+          thinkingExpanded: !message.thinkingExpanded,
+        };
+        this.publish({ ...this.current, messages });
+        return true;
+      }
+    }
+    return false;
   }
 
   upsertAgent(agent: UiAgentIndicator): void {

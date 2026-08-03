@@ -1,4 +1,9 @@
-import { SyntaxStyle, type KeyBinding, type TextareaRenderable } from "@opentui/core";
+import {
+  SyntaxStyle,
+  type KeyBinding,
+  type ScrollBoxRenderable,
+  type TextareaRenderable,
+} from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
@@ -51,7 +56,16 @@ function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
         {props.message.streaming ? "  ◐" : ""}
       </text>
       <Show when={props.message.thinking}>
-        <text fg={COLORS.muted}>thinking · collapsed</text>
+        {(thinking: () => string) => (
+          <box flexDirection="column">
+            <text fg={COLORS.muted}>
+              thinking · {props.message.thinkingExpanded ? "expanded" : "collapsed"} · Tab toggles
+            </text>
+            <Show when={props.message.thinkingExpanded}>
+              <text fg={COLORS.muted}>{thinking()}</text>
+            </Show>
+          </box>
+        )}
       </Show>
       <Show when={props.message.content.length > 0}>
         <markdown
@@ -66,12 +80,36 @@ function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
       </Show>
       <For each={props.message.tools ?? []}>
         {(tool) => (
-          <box border={["left"]} borderColor={COLORS.border} paddingLeft={1} marginTop={1}>
+          <box
+            flexDirection="column"
+            border={["left"]}
+            borderColor={COLORS.border}
+            paddingLeft={1}
+            marginTop={1}
+          >
             <text fg={tool.status === "failed" ? COLORS.error : COLORS.muted}>
               {tool.status === "running" ? "◐" : tool.status === "completed" ? "✓" : "·"}{" "}
               {tool.name}
               {tool.summary ? ` · ${tool.summary}` : ""}
+              {tool.output || tool.diff ? ` · ${tool.expanded ? "expanded" : "collapsed"}` : ""}
             </text>
+            <Show when={tool.expanded && tool.diff}>
+              {(diff: () => string) => (
+                <diff
+                  diff={diff()}
+                  view="unified"
+                  wrapMode="char"
+                  showLineNumbers
+                  height={Math.min(18, Math.max(5, diff().split("\n").length + 1))}
+                  width="100%"
+                  addedBg="#173b2a"
+                  removedBg="#4a2026"
+                />
+              )}
+            </Show>
+            <Show when={tool.expanded && tool.output && !tool.diff}>
+              {(output: () => string) => <text fg={COLORS.text}>{output()}</text>}
+            </Show>
           </box>
         )}
       </For>
@@ -371,7 +409,9 @@ function Conversation(props: { messages: readonly UiMessage[] }) {
 export function Root(props: RootProps) {
   const [state, setState] = createSignal(props.store.snapshot);
   const [composerLines, setComposerLines] = createSignal(1);
+  const [historyLimit, setHistoryLimit] = createSignal(100);
   let composer: TextareaRenderable | undefined;
+  let conversation: ScrollBoxRenderable | undefined;
   let submitting = false;
   let overlayWasVisible =
     state().approval !== undefined ||
@@ -391,7 +431,10 @@ export function Root(props: RootProps) {
     overlayWasVisible = overlayVisible;
   });
 
-  const visibleMessages = createMemo(() => state().messages.slice(-100));
+  const visibleMessages = createMemo(() => state().messages.slice(-historyLimit()));
+  const hiddenMessageCount = createMemo(() =>
+    Math.max(0, state().messages.length - visibleMessages().length),
+  );
   const composerHeight = createMemo(() => Math.min(7, Math.max(3, composerLines() + 1)));
   const contextWindowLabel = createMemo(() => {
     const contextWindow = state().contextWindow;
@@ -429,6 +472,21 @@ export function Root(props: RootProps) {
     props.store.decideApproval(decision);
   };
 
+  const revealOlderMessages = (): boolean => {
+    if (hiddenMessageCount() === 0) return false;
+    const previousHeight = conversation?.scrollHeight ?? 0;
+    const previousTop = conversation?.scrollTop ?? 0;
+    setHistoryLimit((value) => value + 100);
+    queueMicrotask(() => {
+      queueMicrotask(() => {
+        if (!conversation) return;
+        conversation.scrollTop =
+          previousTop + Math.max(0, conversation.scrollHeight - previousHeight);
+      });
+    });
+    return true;
+  };
+
   useKeyboard((key) => {
     if (state().approval) {
       key.preventDefault();
@@ -462,6 +520,16 @@ export function Root(props: RootProps) {
       } else if (key.name === "escape") {
         props.store.backAgentPanel();
       }
+      return;
+    }
+    if (key.name === "pageup" && revealOlderMessages()) {
+      key.preventDefault();
+      key.stopPropagation();
+      return;
+    }
+    if (key.name === "tab" && props.store.toggleLatestDisclosure()) {
+      key.preventDefault();
+      key.stopPropagation();
       return;
     }
     if (key.name === "escape" && state().busy) {
@@ -499,6 +567,10 @@ export function Root(props: RootProps) {
       </box>
 
       <scrollbox
+        id="conversation-scroll"
+        ref={(node) => {
+          conversation = node;
+        }}
         flexGrow={1}
         width="100%"
         paddingX={2}
@@ -513,6 +585,11 @@ export function Root(props: RootProps) {
             <text fg={COLORS.muted}>Ask Brisk to inspect, explain, or change this workspace.</text>
           }
         >
+          <Show when={hiddenMessageCount() > 0}>
+            <text fg={COLORS.muted}>
+              ··· {hiddenMessageCount().toLocaleString()} older messages · PageUp loads more
+            </text>
+          </Show>
           <Conversation messages={visibleMessages()} />
         </Show>
       </scrollbox>

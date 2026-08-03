@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { AgentLoop } from "../../src/core/agent-loop.ts";
 import { FakeProvider } from "../../src/providers/fake-provider.ts";
+import { ToolRegistry } from "../../src/tools/registry.ts";
 import { AgentUiController } from "../../src/ui/agent-controller.ts";
 import { UiStore } from "../../src/ui/state.ts";
 
@@ -41,6 +42,39 @@ describe("AgentUiController", () => {
     expect(store.snapshot.cost).toBe(0.125);
     expect(store.snapshot.busy).toBe(false);
     expect(store.snapshot.status).toBe("ready");
+  });
+
+  test("extracts unified diffs into expandable tool cards", async () => {
+    const store = new UiStore("fixture");
+    const tools = new ToolRegistry().register({
+      name: "edit",
+      description: "fixture edit",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      parse: () => ({}),
+      execute: () => ({
+        content:
+          "Edit committed atomically\n\n--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n",
+      }),
+    });
+    const loop = new AgentLoop({
+      provider: new FakeProvider([
+        { toolCalls: [{ id: "edit-1", name: "edit", arguments: {} }] },
+        { text: "done" },
+      ]),
+      model: "fake",
+      tools,
+    });
+    const controller = new AgentUiController(loop, store, 1);
+
+    await controller.submit("change it");
+    await settleFrames();
+    controller.dispose();
+
+    expect(store.snapshot.messages[1]?.tools?.[0]).toMatchObject({
+      name: "edit",
+      status: "completed",
+      diff: "--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n",
+    });
   });
 
   test("keeps a cancelled partial response visible and stops the busy state", async () => {

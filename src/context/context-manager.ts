@@ -62,6 +62,7 @@ interface ActiveCompaction {
 export class ContextManager implements AgentContextLifecycle {
   private model: ContextModel;
   private readonly recentTargetTokens: number;
+  private readonly automaticCompaction: boolean;
   private readonly thresholdPercent: number | undefined;
   private readonly configuredMaxFrames: number | undefined;
   private readonly configuredMaxFrameDataBytes: number | undefined;
@@ -80,6 +81,7 @@ export class ContextManager implements AgentContextLifecycle {
   constructor(options: ContextManagerOptions) {
     this.model = options.model;
     this.recentTargetTokens = options.recentTargetTokens ?? DEFAULT_RECENT_TARGET_TOKENS;
+    this.automaticCompaction = options.automaticCompaction ?? true;
     this.thresholdPercent = options.thresholdPercent;
     this.configuredMaxFrames = options.maxFrames;
     this.configuredMaxFrameDataBytes = options.maxFrameDataBytes;
@@ -155,7 +157,11 @@ export class ContextManager implements AgentContextLifecycle {
 
     this.rebuildActiveContext(messages);
     const threshold = this.threshold;
-    if (threshold !== undefined && this.activeEstimate.totalTokens >= threshold) {
+    if (
+      this.automaticCompaction &&
+      threshold !== undefined &&
+      this.activeEstimate.totalTokens >= threshold
+    ) {
       await this.performCompaction(messages, signal, "automatic");
       this.rebuildActiveContext(messages);
     }

@@ -258,6 +258,7 @@ export class InteractiveRuntime {
     const manager = new ContextManager({
       model,
       recentTargetTokens: compaction.keepRecentTokens,
+      automaticCompaction: compaction.enabled,
       thresholdPercent: compaction.thresholdPercent,
       initialMessages: session.messages,
       initialCompactionCount: session.metadata.compactionCount,
@@ -820,7 +821,11 @@ export class InteractiveRuntime {
   }
 
   private applyConfigToUi(): void {
-    this.store.update({ mode: this.configManager.current.permissionMode });
+    this.store.update({
+      mode: this.configManager.current.permissionMode,
+      theme: this.configManager.current.ui.theme,
+      showThinking: this.configManager.current.ui.showThinking,
+    });
   }
 
   private showConfigWarnings(): void {

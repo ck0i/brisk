@@ -42,7 +42,7 @@ export const configSchema = z.object({
     .default({ enabled: true, thresholdPercent: 85, keepRecentTokens: 20_000 }),
   ui: z
     .object({
-      theme: nonEmptyString.default("default"),
+      theme: z.enum(["default", "high-contrast"]).default("default"),
       showThinking: z.boolean().default(false),
     })
     .default({ theme: "default", showThinking: false }),
@@ -72,7 +72,7 @@ export const configLayerSchema = z.object({
     .optional(),
   ui: z
     .object({
-      theme: nonEmptyString.optional(),
+      theme: z.enum(["default", "high-contrast"]).optional(),
       showThinking: z.boolean().optional(),
     })
     .optional(),

@@ -91,6 +91,23 @@ describe("ContextManager lifecycle", () => {
     expect(inspection.fallbackMode).toBe("structured-text");
   });
 
+  test("can disable threshold compaction without disabling explicit compaction", async () => {
+    const history: Message[] = [
+      { role: "user", content: `large request ${"x".repeat(18_000)}` },
+      { role: "assistant", content: "large response", toolCalls: [] },
+      { role: "user", content: "tail" },
+    ];
+    const manager = new ContextManager({
+      model: { ...textModel, contextWindow: 20_000 },
+      recentTargetTokens: 100,
+      automaticCompaction: false,
+    });
+
+    expect(await manager.prepare(history, textModel.model, neverAbort())).toEqual(history);
+    expect(manager.inspect().compactionCount).toBe(0);
+    expect((await manager.compactNow(history)).compactionCount).toBe(1);
+  });
+
   test("produces deterministic bounded non-vision fallback", async () => {
     const history: Message[] = [
       { role: "user", content: `REQUEST-A ${"a".repeat(6000)}` },

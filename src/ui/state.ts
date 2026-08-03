@@ -1,4 +1,5 @@
 export type UiMessageRole = "user" | "assistant" | "system";
+export type UiTheme = "default" | "high-contrast";
 
 export interface UiToolCard {
   id: string;
@@ -90,6 +91,8 @@ export interface UiSnapshot {
   providerModel: string;
   status: string;
   mode: "safe" | "write" | "yolo";
+  theme: UiTheme;
+  showThinking: boolean;
   contextTokens: number;
   contextWindow: number | undefined;
   cost: number;
@@ -124,6 +127,8 @@ export class UiStore {
       providerModel: "select a model",
       status: "ready",
       mode,
+      theme: "default",
+      showThinking: false,
       contextTokens: 0,
       contextWindow: undefined,
       cost: 0,
@@ -227,7 +232,7 @@ export class UiStore {
       if (message.thinking) {
         messages[messageIndex] = {
           ...message,
-          thinkingExpanded: !message.thinkingExpanded,
+          thinkingExpanded: !(message.thinkingExpanded ?? this.current.showThinking),
         };
         this.publish({ ...this.current, messages });
         return true;

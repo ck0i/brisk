@@ -25,13 +25,16 @@ describe("configuration", () => {
       `{
         // comments and trailing commas are supported
         "permissionMode": "safe",
-        "ui": { "theme": "dark", },
+        "ui": { "theme": "high-contrast", },
       }`,
       "/config/global.jsonc",
     );
 
     expect(result.diagnostics).toEqual([]);
-    expect(result.value).toEqual({ permissionMode: "safe", ui: { theme: "dark" } });
+    expect(result.value).toEqual({
+      permissionMode: "safe",
+      ui: { theme: "high-contrast" },
+    });
   });
 
   test("reports syntax and schema errors with source and exact JSON paths", () => {
@@ -116,7 +119,7 @@ describe("configuration", () => {
           "permissionMode": "safe",
           "maxSubagents": 4,
           "compaction": { "enabled": false, "thresholdPercent": 70 },
-          "ui": { "theme": "global" },
+          "ui": { "theme": "high-contrast" },
           "providers": {
             "local": {
               "type": "openai-compatible",
@@ -160,12 +163,12 @@ describe("configuration", () => {
         cliOverrides: {
           maxSubagents: 6,
           compaction: { keepRecentTokens: 12_000 },
-          ui: { theme: "cli" },
+          ui: { theme: "default" },
         },
         runtimeOverrides: {
           permissionMode: "yolo",
           maxSubagents: 7,
-          ui: { theme: "runtime" },
+          ui: { theme: "high-contrast" },
         },
       });
 
@@ -178,7 +181,7 @@ describe("configuration", () => {
           thresholdPercent: 75,
           keepRecentTokens: 12_000,
         },
-        ui: { theme: "runtime", showThinking: true },
+        ui: { theme: "high-contrast", showThinking: true },
       });
       expect(loaded.config.providers.local?.baseUrl).toBe("http://127.0.0.1:8080/v1");
       expect(loaded.config.providers.local?.models.map((model) => model.id)).toEqual([

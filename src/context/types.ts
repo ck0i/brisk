@@ -56,6 +56,8 @@ export type CompactionPersistenceInput = Extract<
 export interface ContextManagerOptions {
   readonly model: ContextModel;
   readonly recentTargetTokens?: number;
+  /** Disable threshold-triggered compaction while retaining explicit and overflow compaction. */
+  readonly automaticCompaction?: boolean;
   /** Optional earlier trigger. Values above the reserve-based threshold never delay compaction. */
   readonly thresholdPercent?: number;
   readonly maxFrames?: number;

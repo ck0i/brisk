@@ -105,16 +105,16 @@ Children branch from an immutable prepared-context checkpoint. Research children
 
 - `compaction.thresholdPercent`: integer `1` through `100`; default `85`. Automatic compaction starts at this percentage of a known context window.
 - `compaction.keepRecentTokens`: non-negative integer; default `20000`. Approximate recent-history target retained after an ordinary compaction. Overflow recovery uses a smaller target.
-- `compaction.enabled`: accepted boolean with default `true`. In 0.1.0 this field is reserved; the interactive runtime still creates context management and can compact automatically. Do not rely on `false` to disable compaction in this release.
+- `compaction.enabled`: enables threshold-triggered automatic compaction; default `true`. Setting it to `false` retains explicit `/compact` and the one-shot overflow recovery path.
 
 A model with an unknown context window has no automatic threshold. `/compact` remains available. Snapcompact is loaded only when a compaction pass runs. Vision-capable models may receive rendered archive frames; other models receive deterministic text fallback.
 
 ### UI
 
-- `ui.theme`: accepted non-empty string; default `default`.
-- `ui.showThinking`: accepted boolean; default `false`.
+- `ui.theme`: `default` or `high-contrast`; default `default`.
+- `ui.showThinking`: expands thinking blocks by default when `true`; default `false`. Tab can still collapse or expand the latest block.
 
-These UI fields are reserved in 0.1.0; only the built-in theme and current thinking presentation are active.
+Both fields apply on startup and `/reload`.
 
 ## Custom OpenAI-compatible providers
 

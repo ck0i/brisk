@@ -18,6 +18,7 @@ import type {
   UiMessage,
   UiPickerPrompt,
   UiStore,
+  UiTheme,
 } from "./state.ts";
 
 const COLORS = {
@@ -32,6 +33,24 @@ const COLORS = {
   warning: "#e3b341",
   error: "#ff7b72",
 } as const;
+
+const HIGH_CONTRAST_COLORS = {
+  ...COLORS,
+  background: "#000000",
+  surface: "#000000",
+  border: "#ffffff",
+  text: "#ffffff",
+  muted: "#d7d7d7",
+  accent: "#00ffff",
+  user: "#ffff00",
+  success: "#00ff00",
+  warning: "#ffff00",
+  error: "#ff5f5f",
+} as const;
+
+export function paletteForTheme(theme: UiTheme) {
+  return theme === "high-contrast" ? HIGH_CONTRAST_COLORS : COLORS;
+}
 
 const COMPOSER_BINDINGS: KeyBinding[] = [
   { name: "return", action: "submit" },
@@ -71,7 +90,11 @@ function disclosedText(value: string, expanded: boolean | undefined, limit = 240
   return expanded || value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }
 
-function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
+function MessageBody(props: {
+  message: UiMessage;
+  syntaxStyle: SyntaxStyle;
+  showThinking: boolean;
+}) {
   return (
     <box flexDirection="column" marginBottom={1} width="100%">
       <text fg={props.message.role === "user" ? COLORS.user : COLORS.accent}>
@@ -82,9 +105,11 @@ function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
         {(thinking: () => string) => (
           <box flexDirection="column">
             <text fg={COLORS.muted}>
-              thinking · {props.message.thinkingExpanded ? "expanded" : "collapsed"} · Tab toggles
+              thinking ·{" "}
+              {(props.message.thinkingExpanded ?? props.showThinking) ? "expanded" : "collapsed"} ·
+              Tab toggles
             </text>
-            <Show when={props.message.thinkingExpanded}>
+            <Show when={props.message.thinkingExpanded ?? props.showThinking}>
               <text fg={COLORS.muted}>{thinking()}</text>
             </Show>
           </box>
@@ -417,7 +442,7 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
   );
 }
 
-function Conversation(props: { messages: readonly UiMessage[] }) {
+function Conversation(props: { messages: readonly UiMessage[]; showThinking: boolean }) {
   const syntaxStyle = SyntaxStyle.fromStyles({
     default: { fg: COLORS.text },
     keyword: { fg: "#ff7b72", bold: true },
@@ -431,7 +456,13 @@ function Conversation(props: { messages: readonly UiMessage[] }) {
 
   return (
     <For each={props.messages}>
-      {(message) => <MessageBody message={message} syntaxStyle={syntaxStyle} />}
+      {(message) => (
+        <MessageBody
+          message={message}
+          syntaxStyle={syntaxStyle}
+          showThinking={props.showThinking}
+        />
+      )}
     </For>
   );
 }
@@ -461,6 +492,7 @@ export function Root(props: RootProps) {
     overlayWasVisible = overlayVisible;
   });
 
+  const palette = createMemo(() => paletteForTheme(state().theme));
   const visibleMessages = createMemo(() => state().messages.slice(-historyLimit()));
   const hiddenMessageCount = createMemo(() =>
     Math.max(0, state().messages.length - visibleMessages().length),
@@ -603,9 +635,9 @@ export function Root(props: RootProps) {
   });
 
   return (
-    <box width="100%" height="100%" flexDirection="column" backgroundColor={COLORS.background}>
-      <box height={1} flexShrink={0} paddingX={1} backgroundColor={COLORS.surface} width="100%">
-        <text fg={COLORS.text}>
+    <box width="100%" height="100%" flexDirection="column" backgroundColor={palette().background}>
+      <box height={1} flexShrink={0} paddingX={1} backgroundColor={palette().surface} width="100%">
+        <text fg={palette().text}>
           <strong>Brisk</strong> · {state().workspace} · {state().providerModel}
           <Show when={extensionText("header")}> · {extensionText("header")}</Show>
         </text>
@@ -627,27 +659,29 @@ export function Root(props: RootProps) {
         <Show
           when={visibleMessages().length > 0}
           fallback={
-            <text fg={COLORS.muted}>Ask Brisk to inspect, explain, or change this workspace.</text>
+            <text fg={palette().muted}>
+              Ask Brisk to inspect, explain, or change this workspace.
+            </text>
           }
         >
           <Show when={hiddenMessageCount() > 0}>
-            <text fg={COLORS.muted}>
+            <text fg={palette().muted}>
               ··· {hiddenMessageCount().toLocaleString()} older messages · PageUp loads more
             </text>
           </Show>
-          <Conversation messages={visibleMessages()} />
+          <Conversation messages={visibleMessages()} showThinking={state().showThinking} />
         </Show>
       </scrollbox>
 
       <Show when={extensionText("sidebar")}>
         <box minHeight={1} maxHeight={3} paddingX={1} flexShrink={0}>
-          <text fg={COLORS.muted}>{extensionText("sidebar")}</text>
+          <text fg={palette().muted}>{extensionText("sidebar")}</text>
         </box>
       </Show>
 
       <Show when={state().agents.length > 0}>
         <box height={1} paddingX={1} flexShrink={0}>
-          <text fg={COLORS.muted}>
+          <text fg={palette().muted}>
             /agents · agents ·{" "}
             {state()
               .agents.map(
@@ -668,7 +702,7 @@ export function Root(props: RootProps) {
             paddingX={1}
             width="100%"
           >
-            <text fg={COLORS.error}>
+            <text fg={palette().error}>
               error
               {notice().length > 240
                 ? ` · ${state().noticeExpanded ? "expanded" : "collapsed"} · Tab toggles`
@@ -680,8 +714,8 @@ export function Root(props: RootProps) {
         )}
       </Show>
 
-      <box height={1} flexShrink={0} paddingX={1} backgroundColor={COLORS.surface} width="100%">
-        <text fg={COLORS.muted}>
+      <box height={1} flexShrink={0} paddingX={1} backgroundColor={palette().surface} width="100%">
+        <text fg={palette().muted}>
           context {state().contextTokens.toLocaleString()}
           {contextWindowLabel()} · cost ${state().cost.toFixed(4)} · {state().status} ·{" "}
           {state().mode}
@@ -691,7 +725,7 @@ export function Root(props: RootProps) {
 
       <Show when={extensionText("composer")}>
         <box minHeight={1} maxHeight={2} paddingX={2} flexShrink={0}>
-          <text fg={COLORS.muted}>{extensionText("composer")}</text>
+          <text fg={palette().muted}>{extensionText("composer")}</text>
         </box>
       </Show>
 
@@ -701,13 +735,13 @@ export function Root(props: RootProps) {
         maxHeight={7}
         flexShrink={0}
         border={["top"]}
-        borderColor={COLORS.border}
+        borderColor={palette().border}
         paddingX={1}
         paddingY={0}
         width="100%"
-        backgroundColor={COLORS.background}
+        backgroundColor={palette().background}
       >
-        <text fg={state().busy ? COLORS.warning : COLORS.success} width={2}>
+        <text fg={state().busy ? palette().warning : palette().success} width={2}>
           {state().busy ? "◐" : ">"}
         </text>
         <textarea
@@ -727,11 +761,11 @@ export function Root(props: RootProps) {
           height="100%"
           keyBindings={COMPOSER_BINDINGS}
           placeholder="Send a message or /help · Ctrl+J for newline"
-          placeholderColor={COLORS.muted}
-          textColor={COLORS.text}
-          backgroundColor={COLORS.background}
-          focusedBackgroundColor={COLORS.background}
-          focusedTextColor={COLORS.text}
+          placeholderColor={palette().muted}
+          textColor={palette().text}
+          backgroundColor={palette().background}
+          focusedBackgroundColor={palette().background}
+          focusedTextColor={palette().text}
           wrapMode="word"
           onContentChange={() => {
             if (composer) setComposerLines(composer.lineCount);

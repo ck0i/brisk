@@ -2,8 +2,18 @@ import { expect, test } from "bun:test";
 import { ScrollBoxRenderable, type BaseRenderable } from "@opentui/core";
 import { testRender } from "@opentui/solid";
 
-import { Root } from "../../src/ui/root.tsx";
+import { Root, paletteForTheme } from "../../src/ui/root.tsx";
 import { UiStore } from "../../src/ui/state.ts";
+
+test("theme palettes expose a high-contrast shell without changing the default", () => {
+  expect(paletteForTheme("default").background).toBe("#0b0d10");
+  expect(paletteForTheme("high-contrast")).toMatchObject({
+    background: "#000000",
+    text: "#ffffff",
+    border: "#ffffff",
+    accent: "#00ffff",
+  });
+});
 
 test("first render focuses the multiline composer and accepts a large paste", async () => {
   const store = new UiStore("fixture");
@@ -69,6 +79,28 @@ test("extension UI slots render and registered keybindings invoke without steali
     await setup.waitFor(() => keys.length === 1);
     expect(keys).toEqual(["ctrl+x"]);
     expect(setup.renderer.currentFocusedEditor).not.toBeNull();
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("showThinking config expands reasoning by default and Tab can collapse it", async () => {
+  const store = new UiStore("fixture");
+  store.update({ showThinking: true });
+  store.addMessage({
+    id: "thinking-config",
+    role: "assistant",
+    content: "answer",
+    thinking: "configured reasoning detail",
+  });
+  const setup = await renderRoot(store);
+  try {
+    let frame = await setup.renderOnce().then(() => setup.captureCharFrame());
+    expect(frame).toContain("thinking · expanded · Tab toggles");
+    expect(frame).toContain("configured reasoning detail");
+    setup.mockInput.pressTab();
+    frame = await setup.waitForFrame((value) => value.includes("thinking · collapsed"));
+    expect(frame).not.toContain("configured reasoning detail");
   } finally {
     setup.renderer.destroy();
   }

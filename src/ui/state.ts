@@ -23,6 +23,15 @@ export interface UiMessage {
 
 export type UiAgentStatus = "queued" | "running" | "completed" | "blocked" | "failed" | "cancelled";
 
+export type UiExtensionSlot = "header" | "sidebar" | "status" | "composer";
+
+export interface UiExtensionContribution {
+  id: string;
+  slot: UiExtensionSlot;
+  text: string;
+  priority?: number;
+}
+
 export interface UiAgentTranscriptLine {
   role: "user" | "assistant" | "tool";
   content: string;
@@ -86,6 +95,8 @@ export interface UiSnapshot {
   busy: boolean;
   messages: readonly UiMessage[];
   agents: readonly UiAgentIndicator[];
+  extensionUi: readonly UiExtensionContribution[];
+  extensionKeybindings: readonly string[];
   agentPanel?: UiAgentPanelState;
   approval?: UiApprovalPrompt;
   picker?: UiPickerPrompt;
@@ -117,6 +128,8 @@ export class UiStore {
       busy: false,
       messages: [],
       agents: [],
+      extensionUi: [],
+      extensionKeybindings: [],
     };
   }
 
@@ -204,6 +217,14 @@ export class UiStore {
       }
     }
     return false;
+  }
+
+  setExtensionUi(contributions: readonly UiExtensionContribution[]): void {
+    this.publish({ ...this.current, extensionUi: [...contributions] });
+  }
+
+  setExtensionKeybindings(keybindings: readonly string[]): void {
+    this.publish({ ...this.current, extensionKeybindings: [...keybindings] });
   }
 
   upsertAgent(agent: UiAgentIndicator): void {

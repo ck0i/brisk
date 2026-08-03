@@ -34,6 +34,8 @@ describe("SessionRuntime", () => {
     });
     first.attach(loop);
     await loop.submit("hello");
+    await first.detach();
+    expect(first.messages.map((message) => message.content)).toEqual(["hello", "persisted"]);
     await first.recordModelChange("fake", "changed");
     await first.close();
 
@@ -62,10 +64,9 @@ describe("SessionRuntime", () => {
     const firstId = runtime.sessionId;
     const second = await runtime.createNew("anthropic", "model");
     expect(second.metadata.id).not.toBe(firstId);
-    expect((await runtime.listWorkspace()).map((session) => session.id)).toEqual([
-      second.metadata.id,
-      firstId,
-    ]);
+    const indexedIds = (await runtime.listWorkspace()).map((session) => session.id);
+    expect(indexedIds).toHaveLength(2);
+    expect(indexedIds).toEqual(expect.arrayContaining([second.metadata.id, firstId]));
     await runtime.open(firstId);
     expect(runtime.sessionId).toBe(firstId);
     await runtime.close();

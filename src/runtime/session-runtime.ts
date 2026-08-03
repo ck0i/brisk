@@ -177,6 +177,11 @@ export class SessionRuntime {
     return await this.repository.list({ workspace: this.options.workspace });
   }
 
+  async detach(): Promise<void> {
+    await this.detachRecorder();
+    this.currentValue = await this.repository.open(this.sessionId);
+  }
+
   async flush(): Promise<void> {
     await this.recorder?.flush();
     await this.repository.flush();

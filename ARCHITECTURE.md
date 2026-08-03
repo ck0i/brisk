@@ -14,6 +14,7 @@ After first draw, the TUI `initialize` callback imports `InteractiveRuntime`. In
 4. Register coding tools and approval services.
 5. Initialize the fake provider or cached provider/model services.
 6. Select a model, install the agent loop/context manager, and enable subagents.
+7. Discover global/project extensions, request project approval, and install validated contributions.
 
 The UI remains the owner of terminal suspension, input, overlays, and shutdown. `InteractiveRuntime` coordinates services but does not render directly.
 
@@ -30,6 +31,7 @@ The UI remains the owner of terminal suspension, input, overlays, and shutdown. 
 | Sessions      | `src/sessions/*`           | Append-only codec/store, disposable atomic index, recovery, event recorder.                                        |
 | Context       | `src/context/*`            | Estimation, message grouping, Snapcompact lifecycle, image/text fallback, persisted compaction.                    |
 | Subagents     | `src/subagents/*`          | Immutable checkpoints, child sessions, task/result protocol, patch overlay.                                        |
+| Extensions    | `src/extensions/*`         | Deterministic discovery, documented contributions, lifecycle, isolation, reload.                                   |
 | Configuration | `src/config/*`             | Platform paths, JSONC diagnostics, schema validation, layered reload.                                              |
 
 ## Agent loop
@@ -114,10 +116,10 @@ Research children use workspace read/search/find/list plus policy-controlled bas
 
 Long-lived resources have explicit ownership:
 
-- `InteractiveRuntime` owns providers, session runtime, tools, context, and subagents.
+- `InteractiveRuntime` owns providers, session runtime, tools, context, subagents, and the extension bridge.
 - `AgentUiController` owns its loop subscription.
 - approval/picker controllers own pending UI decisions.
-- shutdown aborts active work, disposes subscriptions/children, flushes the session, closes auth storage, and cleans tracked processes.
+- shutdown aborts active work, emits extension lifecycle events, disposes subscriptions/children/extensions, flushes the session, closes auth storage, and cleans tracked processes.
 
 ## Security boundaries
 

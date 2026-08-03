@@ -265,8 +265,17 @@ test("headless CLI mounts and destroys the OpenTUI test renderer", async () => {
     ]);
     expect(stderr).toBe("");
     expect(exitCode).toBe(0);
-    const result: unknown = JSON.parse(stdout.trim());
-    expect(result).toMatchObject({ timeToFirstDrawMs: expect.any(Number) });
+    const result = JSON.parse(stdout.trim()) as {
+      schemaVersion?: number;
+      metrics?: Array<{
+        name?: string;
+        statistics?: { median?: number };
+      }>;
+    };
+    expect(result.schemaVersion).toBe(1);
+    expect(
+      result.metrics?.find((metric) => metric.name === "opentui.first_draw")?.statistics?.median,
+    ).toBeNumber();
   } finally {
     clearTimeout(timeout);
     if (child.exitCode === null) child.kill("SIGKILL");

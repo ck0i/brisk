@@ -14,6 +14,7 @@ import type {
   UiAgentStatus,
   UiApprovalDecision,
   UiApprovalPrompt,
+  UiExtensionSlot,
   UiMessage,
   UiPickerPrompt,
   UiStore,
@@ -40,6 +41,22 @@ const COMPOSER_BINDINGS: KeyBinding[] = [
   { name: "j", ctrl: true, action: "newline" },
 ];
 
+function normalizedExtensionKey(key: {
+  readonly name: string;
+  readonly ctrl: boolean;
+  readonly meta: boolean;
+  readonly shift: boolean;
+  readonly option: boolean;
+}): string {
+  return [
+    ...(key.ctrl ? ["ctrl"] : []),
+    ...(key.meta ? ["meta"] : []),
+    ...(key.option ? ["alt"] : []),
+    ...(key.shift ? ["shift"] : []),
+    key.name.toLowerCase(),
+  ].join("+");
+}
+
 export interface RootProps {
   store: UiStore;
   onSubmit: (value: string) => boolean | Promise<boolean>;
@@ -47,6 +64,7 @@ export interface RootProps {
   onExit: () => void;
   onOpenModels?: () => void;
   onOpenSessions?: () => void;
+  onKeybinding?: (key: string) => void;
 }
 
 function MessageBody(props: { message: UiMessage; syntaxStyle: SyntaxStyle }) {
@@ -441,6 +459,11 @@ export function Root(props: RootProps) {
     const contextWindow = state().contextWindow;
     return contextWindow === undefined ? "" : `/${contextWindow.toLocaleString()}`;
   });
+  const extensionText = (slot: UiExtensionSlot): string =>
+    state()
+      .extensionUi.filter((contribution) => contribution.slot === slot)
+      .map((contribution) => contribution.text)
+      .join(" · ");
 
   const submit = (): void => {
     if (!composer || submitting) return;
@@ -558,6 +581,13 @@ export function Root(props: RootProps) {
       key.preventDefault();
       key.stopPropagation();
       props.onOpenSessions?.();
+      return;
+    }
+    const extensionKey = normalizedExtensionKey(key);
+    if (state().extensionKeybindings.includes(extensionKey)) {
+      key.preventDefault();
+      key.stopPropagation();
+      props.onKeybinding?.(extensionKey);
     }
   });
 
@@ -566,6 +596,7 @@ export function Root(props: RootProps) {
       <box height={1} flexShrink={0} paddingX={1} backgroundColor={COLORS.surface} width="100%">
         <text fg={COLORS.text}>
           <strong>Brisk</strong> · {state().workspace} · {state().providerModel}
+          <Show when={extensionText("header")}> · {extensionText("header")}</Show>
         </text>
       </box>
 
@@ -597,6 +628,12 @@ export function Root(props: RootProps) {
         </Show>
       </scrollbox>
 
+      <Show when={extensionText("sidebar")}>
+        <box minHeight={1} maxHeight={3} paddingX={1} flexShrink={0}>
+          <text fg={COLORS.muted}>{extensionText("sidebar")}</text>
+        </box>
+      </Show>
+
       <Show when={state().agents.length > 0}>
         <box height={1} paddingX={1} flexShrink={0}>
           <text fg={COLORS.muted}>
@@ -624,8 +661,15 @@ export function Root(props: RootProps) {
           context {state().contextTokens.toLocaleString()}
           {contextWindowLabel()} · cost ${state().cost.toFixed(4)} · {state().status} ·{" "}
           {state().mode}
+          <Show when={extensionText("status")}> · {extensionText("status")}</Show>
         </text>
       </box>
+
+      <Show when={extensionText("composer")}>
+        <box minHeight={1} maxHeight={2} paddingX={2} flexShrink={0}>
+          <text fg={COLORS.muted}>{extensionText("composer")}</text>
+        </box>
+      </Show>
 
       <box
         height={composerHeight()}

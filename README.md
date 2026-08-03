@@ -166,6 +166,10 @@ The parent model can call `task` for `research` or `patch` work. Children share 
 
 Research children receive read/search/find/list/bash tools under the normal permission policy. Patch children edit an in-memory overlay, never the real workspace. Their deterministic unified diff returns to the parent; it is not silently applied. `/agents` displays queued, running, completed, blocked, failed, and cancelled children with model, mode, token usage, and transcript detail.
 
+## Extensions
+
+Place global `.ts`, `.js`, or `.mjs` extension entries in the platform configuration directory's `extensions/` child, or project entries in `<workspace>/.brisk/extensions/`. Project entries require an explicit first-use approval before import. Extensions can register tools, slash commands, keybindings, predefined UI-slot text, and lifecycle hooks through the documented API. Built-in names take precedence, failures are isolated and redacted, and `/reload` replaces the active extension generation. See [the extension guide](docs/EXTENSIONS.md) for paths and the complete API.
+
 ## Security model
 
 Brisk assumes the selected model and tool outputs are untrusted inputs. It validates tool schemas, confines workspace mutations, separates preview from commit, redacts known secrets from approvals, limits output, cleans process trees, and keeps auth/session/artifact directories private where the platform supports POSIX modes. Configuration rejects inline secret fields and URLs containing credentials.
@@ -176,6 +180,7 @@ Brisk is not an OS sandbox. `bash`, approved writes, providers, local endpoint s
 
 - [Configuration](docs/CONFIGURATION.md)
 - [Providers and authentication](docs/PROVIDERS.md)
+- [Extensions](docs/EXTENSIONS.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Architecture](ARCHITECTURE.md)
 - [Contributing](CONTRIBUTING.md)

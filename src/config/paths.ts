@@ -101,7 +101,7 @@ export function resolveConfigPaths(input: ConfigPathInput = {}): ConfigPaths {
     authPath: path.join(dataRoot, "auth.db"),
     modelCachePath: path.join(cacheRoot, "models.json"),
     sessionIndexPath: path.join(dataRoot, "session-index.json"),
-    extensionsDir: path.join(dataRoot, "extensions"),
+    extensionsDir: path.join(configRoot, "extensions"),
   };
 }
 

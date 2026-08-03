@@ -10,6 +10,7 @@ interface InteractiveController {
   abort(): void;
   openModelPicker(): Promise<void>;
   openSessionPicker(): Promise<void>;
+  invokeKeybinding(key: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -104,6 +105,10 @@ async function main(): Promise<void> {
       openSessions(store) {
         if (controller) void controller.openSessionPicker();
         else store.update({ status: "sessions loading" });
+      },
+      keybinding(key, store) {
+        if (controller) void controller.invokeKeybinding(key);
+        else store.update({ status: "extensions loading" });
       },
       async cleanup() {
         await controller?.close();

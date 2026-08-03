@@ -36,6 +36,44 @@ test("first render focuses the multiline composer and accepts a large paste", as
   }
 });
 
+test("extension UI slots render and registered keybindings invoke without stealing focus", async () => {
+  const store = new UiStore("fixture");
+  store.setExtensionUi([
+    { id: "header", slot: "header", text: "header contribution" },
+    { id: "sidebar", slot: "sidebar", text: "sidebar contribution" },
+    { id: "status", slot: "status", text: "status contribution" },
+    { id: "composer", slot: "composer", text: "composer contribution" },
+  ]);
+  store.setExtensionKeybindings(["ctrl+x"]);
+  const keys: string[] = [];
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={() => true}
+        onAbort={() => {}}
+        onExit={() => {}}
+        onKeybinding={(key) => keys.push(key)}
+      />
+    ),
+    { width: 110, height: 28 },
+  );
+  try {
+    const frame = await setup.renderOnce().then(() => setup.captureCharFrame());
+    expect(frame).toContain("header contribution");
+    expect(frame).toContain("sidebar contribution");
+    expect(frame).toContain("status contribution");
+    expect(frame).toContain("composer contribution");
+    expect(setup.renderer.currentFocusedEditor).not.toBeNull();
+    setup.mockInput.pressKey("x", { ctrl: true });
+    await setup.waitFor(() => keys.length === 1);
+    expect(keys).toEqual(["ctrl+x"]);
+    expect(setup.renderer.currentFocusedEditor).not.toBeNull();
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("conversation disclosures expand thinking and tool diffs from the keyboard", async () => {
   const store = new UiStore("fixture");
   store.addMessage({

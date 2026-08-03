@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { join } from "node:path";
 
 import type { CliCommand } from "../cli/args.ts";
 import { TerminalAuthPrompter } from "../cli/auth-prompter.ts";
@@ -9,6 +10,7 @@ import { ContextManager, type ContextInspection, type ContextModel } from "../co
 import { AgentLoop } from "../core/agent-loop.ts";
 import type { Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
+import { redactedErrorMessage } from "../providers/secret-redaction.ts";
 import {
   BUILT_IN_BRISK_OAUTH_PROVIDERS,
   type ProviderAuthStatus,
@@ -22,6 +24,7 @@ import { registerCodingTools, type CodingToolServices } from "../tools/coding-to
 import { cleanupToolProcesses } from "../tools/process-registry.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import type { TuiRuntime } from "../app.tsx";
+import { RuntimeExtensions } from "./extension-runtime.ts";
 import { SessionRuntime } from "./session-runtime.ts";
 import { RuntimeSubagents } from "./subagent-runtime.ts";
 import { AgentUiController } from "../ui/agent-controller.ts";
@@ -49,6 +52,7 @@ export class InteractiveRuntime {
   private tools = new ToolRegistry();
   private codingServices: CodingToolServices | undefined;
   private subagents: RuntimeSubagents | undefined;
+  private extensions: RuntimeExtensions | undefined;
   private readonly approvalController: UiApprovalController;
   private readonly pickerController: UiPickerController;
   private closed = false;
@@ -96,6 +100,7 @@ export class InteractiveRuntime {
       await runtime.initializeCodingTools();
       if (options.command.fakeProvider) await runtime.initializeFakeProvider();
       else await runtime.initializeProviderService();
+      await runtime.initializeExtensions();
       return runtime;
     } catch (error) {
       await runtime.close();
@@ -110,11 +115,15 @@ export class InteractiveRuntime {
       this.addSystem("No model is selected. Use `/login`, `/model`, or configure an API key.");
       return true;
     }
+    const sessionId = this.sessionRuntime?.sessionId ?? "unknown";
+    await this.extensions?.emitLifecycle("turn-start", { sessionId });
     try {
       if (this.store.snapshot.busy) await this.controller.steer(value);
       else await this.controller.submit(value);
     } catch {
       // Provider failures are normalized and already visible through AgentUiController.
+    } finally {
+      await this.extensions?.emitLifecycle("turn-end", { sessionId });
     }
     return true;
   }
@@ -153,6 +162,13 @@ export class InteractiveRuntime {
     if (selected) await this.switchSession(selected);
   }
 
+  async invokeKeybinding(key: string): Promise<void> {
+    const result = await this.extensions?.invokeKeybinding(key);
+    if (!result?.found) return;
+    if (result.output) this.addSystem(result.output);
+    else if (!result.ok) this.addSystem(`Extension keybinding \`${key}\` failed.`);
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
@@ -160,6 +176,11 @@ export class InteractiveRuntime {
     this.controller?.cancel();
     this.controller?.dispose();
     this.subagents?.dispose();
+    await this.extensions?.emitLifecycle("session-end", {
+      sessionId: this.sessionRuntime?.sessionId ?? "unknown",
+    });
+    await this.extensions?.emitLifecycle("shutdown");
+    await this.extensions?.dispose();
     this.approvalController.dispose();
     this.pickerController.dispose();
     await this.sessionRuntime?.close();
@@ -194,6 +215,41 @@ export class InteractiveRuntime {
       permissionMode: this.configManager.current.permissionMode,
       approvalHandler: this.approvalController,
     });
+  }
+
+  private async initializeExtensions(): Promise<void> {
+    const runtime = new RuntimeExtensions({
+      workspace: this.options.workspace,
+      globalDirectory: this.paths.extensionsDir,
+      errorsPath: join(this.paths.extensionsDir, "errors.json"),
+      approvalHandler: this.approvalController,
+      store: this.store,
+    });
+    this.extensions = runtime;
+    try {
+      const summary = await runtime.load();
+      this.installExtensionTools();
+      await runtime.emitLifecycle("session-start", {
+        sessionId: this.requireSessionRuntime().sessionId,
+        workspace: this.options.workspace,
+      });
+      if (summary.discovered > 0) {
+        this.addSystem(
+          `Extensions: ${summary.loaded} loaded, ${summary.denied} denied, ${summary.failed} failed.`,
+        );
+      }
+    } catch (error) {
+      this.addSystem(`Extension initialization failed: ${redactedErrorMessage(error)}`);
+    }
+  }
+
+  private installExtensionTools(): void {
+    const result = this.extensions?.installTools(this.tools);
+    if (result && result.skipped.length > 0) {
+      this.addSystem(
+        `Extension tools skipped because names are already registered: ${result.skipped.join(", ")}.`,
+      );
+    }
   }
 
   private createContextManager(model: ContextModel): ContextManager {
@@ -452,11 +508,16 @@ export class InteractiveRuntime {
     const model = this.options.command.fakeProvider
       ? "brisk-demo"
       : (selected?.record.id ?? "unselected");
+    await this.extensions?.emitLifecycle("session-end", { sessionId: session.sessionId });
     await this.teardownAgent();
     await session.createNew(provider, model);
     await this.resetSessionTools();
     this.hydrateSessionUi();
     await this.activateCurrentSessionModel();
+    await this.extensions?.emitLifecycle("session-start", {
+      sessionId: session.sessionId,
+      workspace: this.options.workspace,
+    });
   }
 
   private async pickSession(): Promise<string | undefined> {
@@ -484,12 +545,17 @@ export class InteractiveRuntime {
       this.addSystem("Abort active work before switching sessions.");
       return;
     }
+    await this.extensions?.emitLifecycle("session-end", { sessionId: session.sessionId });
     await this.teardownAgent();
     await session.open(id);
     this.providerService?.setSessionId(session.sessionId);
     await this.resetSessionTools();
     this.hydrateSessionUi();
     await this.activateCurrentSessionModel();
+    await this.extensions?.emitLifecycle("session-start", {
+      sessionId: session.sessionId,
+      workspace: this.options.workspace,
+    });
   }
 
   private async activateCurrentSessionModel(): Promise<void> {
@@ -525,12 +591,42 @@ export class InteractiveRuntime {
     this.controller = undefined;
     this.agentLoop = undefined;
     this.contextManager = undefined;
+    await this.sessionRuntime?.detach();
     await cleanupToolProcesses();
   }
 
   private async resetSessionTools(): Promise<void> {
     this.tools = new ToolRegistry();
     await this.initializeCodingTools();
+    this.installExtensionTools();
+  }
+
+  private async reloadConfigurationAndExtensions(): Promise<void> {
+    if (this.store.snapshot.busy) {
+      this.addSystem("Abort active work before reloading configuration and extensions.");
+      return;
+    }
+    await this.configManager.reload();
+    this.applyConfigToUi();
+    this.showConfigWarnings();
+    await this.teardownAgent();
+    this.providerService?.close();
+    this.providerService = undefined;
+    this.tools = new ToolRegistry();
+    await this.initializeCodingTools();
+    const summary = await this.extensions?.reload();
+    if (this.options.command.fakeProvider) await this.initializeFakeProvider();
+    else await this.initializeProviderService();
+    this.installExtensionTools();
+    await this.extensions?.emitLifecycle("session-start", {
+      sessionId: this.requireSessionRuntime().sessionId,
+      workspace: this.options.workspace,
+    });
+    this.addSystem(
+      summary
+        ? `Reloaded configuration and extensions: ${summary.loaded} loaded, ${summary.denied} denied, ${summary.failed} failed.`
+        : "Configuration reloaded.",
+    );
   }
 
   private requireSessionRuntime(): SessionRuntime {
@@ -539,7 +635,8 @@ export class InteractiveRuntime {
   }
 
   private async executeCommand(commandLine: string, tui: TuiRuntime): Promise<boolean> {
-    const [name, ...parts] = commandLine.trim().split(/\s+/);
+    const [parsedName, ...parts] = commandLine.trim().split(/\s+/);
+    const name = parsedName ?? "";
     const argument = parts.join(" ");
     switch (name) {
       case "/quit":
@@ -576,24 +673,25 @@ export class InteractiveRuntime {
       case "/logout":
         await this.logout(argument, tui);
         return true;
-      case "/reload": {
-        await this.configManager.reload();
-        this.applyConfigToUi();
-        this.showConfigWarnings();
-        this.addSystem(
-          "Configuration reloaded. Provider definition changes apply on the next session.",
-        );
+      case "/reload":
+        await this.reloadConfigurationAndExtensions();
         return true;
-      }
       case "/cost":
         this.addSystem(`Current recorded cost: **$${this.store.snapshot.cost.toFixed(4)}**`);
         return true;
       case "/settings":
         this.addSystem(`Global configuration: \`${this.paths.globalConfigPath}\``);
         return true;
-      default:
+      default: {
+        const result = await this.extensions?.invokeSlashCommand(name, argument);
+        if (result?.found) {
+          if (result.output) this.addSystem(result.output);
+          else if (!result.ok) this.addSystem(`Extension command \`${name}\` failed.`);
+          return true;
+        }
         this.addSystem(`Unknown command: \`${name}\`. Use \`/help\`.`);
         return true;
+      }
     }
   }
 

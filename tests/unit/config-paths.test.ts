@@ -32,7 +32,7 @@ describe("configuration paths", () => {
       authPath: "/xdg/data/brisk/auth.db",
       modelCachePath: "/xdg/cache/brisk/models.json",
       sessionIndexPath: "/xdg/data/brisk/session-index.json",
-      extensionsDir: "/xdg/data/brisk/extensions",
+      extensionsDir: "/xdg/config/brisk/extensions",
     });
 
     const fallbacks = resolveConfigPaths({

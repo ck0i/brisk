@@ -1,4 +1,5 @@
 import type { JsonValue } from "../core/messages.ts";
+import { redactSecrets } from "../providers/secret-redaction.ts";
 import type { ToolContext, ToolDefinition, ToolResult } from "../tools/registry.ts";
 import { discoverExtensions } from "./discovery.ts";
 import type {
@@ -766,7 +767,7 @@ function compare(left: string, right: string): number {
 
 function errorMessage(error: unknown): string {
   try {
-    return error instanceof Error ? error.message : String(error);
+    return redactSecrets(error instanceof Error ? error.message : String(error));
   } catch {
     return "unknown error";
   }

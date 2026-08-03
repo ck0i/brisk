@@ -12,6 +12,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 
 - Recover stale terminal synchronized-output state before mounting OpenTUI, preventing blank startup after an interrupted full-screen application.
 - Convert the configured whole-number compaction percentage to the context manager's ratio, preventing default startup initialization failure.
+- Load the OpenTUI Solid transform from the executable itself so global package launches no longer depend on the current directory containing Brisk's `bunfig.toml`.
 
 ## [0.1.0] - 2026-08-03
 

@@ -245,11 +245,12 @@ test("Brisk edits, verifies, persists, closes, and resumes a coding session", as
   }
 });
 
-test("headless CLI mounts and destroys the OpenTUI test renderer", async () => {
+test("headless CLI loads the Solid transform outside the repository", async () => {
+  const outsideDirectory = await mkdtemp(join(tmpdir(), "brisk-outside-cwd-"));
   const child = Bun.spawn(
     [process.execPath, join(repositoryRoot, "src", "main.ts"), "bench", "--json"],
     {
-      cwd: repositoryRoot,
+      cwd: outsideDirectory,
       env: { ...process.env, NO_COLOR: "1" },
       stdin: "ignore",
       stdout: "pipe",
@@ -280,6 +281,7 @@ test("headless CLI mounts and destroys the OpenTUI test renderer", async () => {
     clearTimeout(timeout);
     if (child.exitCode === null) child.kill("SIGKILL");
     await child.exited.catch(() => undefined);
+    await rm(outsideDirectory, { recursive: true, force: true });
   }
 });
 

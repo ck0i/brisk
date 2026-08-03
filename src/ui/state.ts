@@ -28,6 +28,18 @@ export interface UiAgentIndicator {
   model: string;
 }
 
+export interface UiApprovalPrompt {
+  id: string;
+  toolName: string;
+  summary: string;
+  command?: string;
+  targetPaths: readonly string[];
+  riskDescription: string;
+  equivalenceKey: string;
+}
+
+export type UiApprovalDecision = "approve_once" | "approve_session" | "deny";
+
 export interface UiSnapshot {
   workspace: string;
   providerModel: string;
@@ -39,14 +51,17 @@ export interface UiSnapshot {
   busy: boolean;
   messages: readonly UiMessage[];
   agents: readonly UiAgentIndicator[];
+  approval?: UiApprovalPrompt;
   notice?: string;
 }
 
 export type UiListener = (snapshot: UiSnapshot) => void;
+export type UiApprovalDecisionHandler = (id: string, decision: UiApprovalDecision) => void;
 
 export class UiStore {
   private current: UiSnapshot;
   private readonly listeners = new Set<UiListener>();
+  private approvalDecisionHandler: UiApprovalDecisionHandler | undefined;
 
   constructor(workspace: string, mode: UiSnapshot["mode"] = "write") {
     this.current = {
@@ -115,6 +130,34 @@ export class UiStore {
 
   clearMessages(): void {
     this.publish({ ...this.current, messages: [] });
+  }
+
+  showApproval(approval: UiApprovalPrompt): void {
+    this.publish({ ...this.current, approval });
+  }
+
+  clearApproval(id?: string): void {
+    if (!this.current.approval || (id !== undefined && this.current.approval.id !== id)) return;
+    const { approval: _approval, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
+  setApprovalDecisionHandler(handler: UiApprovalDecisionHandler): () => void {
+    if (this.approvalDecisionHandler) {
+      throw new Error("An approval decision handler is already registered");
+    }
+    this.approvalDecisionHandler = handler;
+    return () => {
+      if (this.approvalDecisionHandler === handler) this.approvalDecisionHandler = undefined;
+    };
+  }
+
+  decideApproval(decision: UiApprovalDecision): boolean {
+    const approval = this.current.approval;
+    const handler = this.approvalDecisionHandler;
+    if (!approval || !handler) return false;
+    handler(approval.id, decision);
+    return true;
   }
 
   private publish(snapshot: UiSnapshot): void {

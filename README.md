@@ -86,6 +86,7 @@ brisk --session <id>
 brisk auth <login|logout|status> [provider] [--json]
 brisk models [--refresh] [--json]
 brisk sessions [--json]
+brisk doctor [--json]
 brisk bench [--json]
 brisk version
 ```
@@ -99,7 +100,7 @@ Interactive options:
 - `--fake-provider` enables the deterministic development provider.
 - `--help`, `-h`, `--version`, and `-v` show metadata without starting the TUI.
 
-`brisk doctor` is a reserved command in 0.1.0 but is not implemented. Use [Troubleshooting](docs/TROUBLESHOOTING.md) and the status commands above.
+`brisk doctor` checks the Bun runtime, OpenTUI native loading, private writable directories, credential presence, model cache, optional tools, terminal capabilities, session index, and extension diagnostics without printing credentials. It exits nonzero only for error-level checks and supports `--json`.
 
 ### Slash commands
 

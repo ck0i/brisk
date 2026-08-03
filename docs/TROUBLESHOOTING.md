@@ -7,9 +7,10 @@ brisk version
 brisk auth status
 brisk models --refresh
 brisk sessions
+brisk doctor
 ```
 
-Add `--json` to the last three commands when collecting machine-readable diagnostics. Do not attach auth databases, callback URLs, session transcripts, or environment dumps to reports without reviewing them for secrets. `brisk doctor` is reserved but not implemented in 0.1.0.
+Add `--json` to the status/list/doctor commands when collecting machine-readable diagnostics. `brisk doctor` checks the runtime, native UI, writable directories, credential presence, model cache, optional tools, terminal, session index, and extension failures, and suggests concrete fixes. Do not attach auth databases, callback URLs, session transcripts, or environment dumps to reports without reviewing them for secrets.
 
 ## Installation and startup
 

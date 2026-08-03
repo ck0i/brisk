@@ -7,6 +7,7 @@ import {
 import { useKeyboard } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
+import { redactSecrets } from "../providers/secret-redaction.ts";
 import type {
   UiAgentIndicator,
   UiAgentPanelState,
@@ -456,7 +457,7 @@ export function Root(props: RootProps) {
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          props.store.update({ status: "error", notice: message });
+          props.store.update({ status: "error", notice: redactSecrets(message) });
         } finally {
           submitting = false;
           if (

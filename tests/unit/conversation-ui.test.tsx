@@ -90,7 +90,7 @@ test("submission errors remain visible and preserve the composer draft", async (
       <Root
         store={store}
         onSubmit={() => {
-          throw new Error("local command failed");
+          throw new Error("local command failed api_key=BRISK_TEST_SECRET_VALUE");
         }}
         onAbort={() => {}}
         onExit={() => {}}
@@ -103,7 +103,8 @@ test("submission errors remain visible and preserve the composer draft", async (
     await setup.mockInput.typeText("keep this draft");
     setup.mockInput.pressEnter();
     const frame = await setup.waitForFrame((value) => value.includes("local command failed"));
-    expect(frame).toContain("error · local command failed");
+    expect(frame).toContain("error · local command failed api_key=[REDACTED]");
+    expect(frame).not.toContain("BRISK_TEST_SECRET_VALUE");
     expect(frame).toContain("keep this draft");
     expect(store.snapshot.status).toBe("error");
   } finally {

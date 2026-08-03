@@ -117,7 +117,14 @@ await main().catch(async (error: unknown) => {
   } catch {
     // Preserve the primary failure; process cleanup is best effort here.
   }
-  const message = error instanceof Error ? error.message : String(error);
+  const unsafeMessage = error instanceof Error ? error.message : String(error);
+  let message = "Unexpected failure";
+  try {
+    const { redactSecrets } = await import("./providers/secret-redaction.ts");
+    message = redactSecrets(unsafeMessage);
+  } catch {
+    // Never print an unredacted failure when the redactor itself cannot load.
+  }
   process.stderr.write(`brisk: ${message}\n`);
   process.exitCode = 1;
 });

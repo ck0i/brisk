@@ -5,15 +5,6 @@ export {};
 const VERSION = "0.1.0";
 const startedAt = performance.now();
 
-type PermissionMode = "safe" | "write" | "yolo";
-
-interface EssentialArgs {
-  command: "tui" | "bench" | "version" | "help";
-  directory: string;
-  mode: PermissionMode;
-  fakeProvider: boolean;
-}
-
 interface RuntimeController {
   submit(text: string): Promise<void>;
   steer(text: string): Promise<void>;
@@ -21,64 +12,45 @@ interface RuntimeController {
   dispose(): void;
 }
 
-function parseEssentialArgs(argv: readonly string[]): EssentialArgs {
-  let directory = process.cwd();
-  let mode: PermissionMode = "write";
-  let command: EssentialArgs["command"] = "tui";
-  let fakeProvider = process.env.BRISK_FAKE_PROVIDER === "1";
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const value = argv[index];
-    if (!value) continue;
-    if (value === "bench") command = "bench";
-    else if (value === "version" || value === "--version" || value === "-v") command = "version";
-    else if (value === "--help" || value === "-h" || value === "help") command = "help";
-    else if (value === "--fake-provider") fakeProvider = true;
-    else if (value === "--permission-mode") {
-      const next = argv[index + 1];
-      if (next !== "safe" && next !== "write" && next !== "yolo") {
-        throw new Error("--permission-mode must be safe, write, or yolo");
-      }
-      mode = next;
-      index += 1;
-    } else if (!value.startsWith("-")) {
-      directory = value;
-    }
-  }
-
-  return { command, directory, mode, fakeProvider };
-}
-
 function printHelp(): void {
   process.stdout.write(
-    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk bench\n  brisk version\n\nOptions:\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
+    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor\n  brisk bench\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
   );
 }
 
 async function main(): Promise<void> {
-  const args = parseEssentialArgs(process.argv.slice(2));
-  if (args.command === "version") {
+  const { parseCliArgs } = await import("./cli/args.ts");
+  const command = parseCliArgs(process.argv.slice(2), {
+    fakeProviderEnv: process.env.BRISK_FAKE_PROVIDER === "1",
+  });
+  if (command.name === "version") {
     process.stdout.write(`brisk ${VERSION}\n`);
     return;
   }
-  if (args.command === "help") {
+  if (command.name === "help") {
     printHelp();
     return;
   }
-  if (args.command === "bench") {
+  if (command.name === "bench") {
     const { benchmarkFirstDraw } = await import("./ui/benchmark.tsx");
     const value = await benchmarkFirstDraw();
-    process.stdout.write(`Time to first draw (headless): ${value.toFixed(2)} ms\n`);
+    if (command.json) process.stdout.write(`${JSON.stringify({ timeToFirstDrawMs: value })}\n`);
+    else process.stdout.write(`Time to first draw (headless): ${value.toFixed(2)} ms\n`);
     return;
+  }
+  if (command.name !== "tui") {
+    throw new Error(
+      `${command.name} is not available until provider and session initialization completes`,
+    );
   }
 
   const { basename, resolve } = await import("node:path");
-  const workspace = resolve(args.directory);
+  const workspace = resolve(command.directory);
   const { launchTui } = await import("./app.tsx");
   let controller: RuntimeController | undefined;
   await launchTui({
     workspace: basename(workspace) || workspace,
-    mode: args.mode,
+    mode: command.permissionMode ?? "write",
     startedAt,
     handlers: {
       async initialize(store) {
@@ -86,7 +58,7 @@ async function main(): Promise<void> {
         const workspaceStat = await stat(workspace).catch(() => undefined);
         if (!workspaceStat?.isDirectory())
           throw new Error(`Workspace does not exist: ${workspace}`);
-        if (!args.fakeProvider) {
+        if (!command.fakeProvider) {
           store.update({ status: "ready" });
           return;
         }

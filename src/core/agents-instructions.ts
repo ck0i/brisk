@@ -1,3 +1,4 @@
+import type { Dirent } from "node:fs";
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 
@@ -18,9 +19,14 @@ const SKIPPED_DIRECTORIES = new Set([
   "vendor",
 ]);
 
+export interface AgentsInstructionDiscoveryIO {
+  readonly readDirectory: (path: string) => Promise<readonly Dirent[]>;
+}
+
 export interface AgentsInstructionDiscoveryOptions {
   readonly workspace: string;
   readonly userAgentsPath: string;
+  readonly io?: Partial<AgentsInstructionDiscoveryIO>;
 }
 
 interface RepositoryAgentsFile {
@@ -29,14 +35,21 @@ interface RepositoryAgentsFile {
   readonly content: string;
 }
 
+const defaultDiscoveryIO: AgentsInstructionDiscoveryIO = {
+  async readDirectory(path) {
+    return await readdir(path, { withFileTypes: true });
+  },
+};
+
 /** Discover user and recursively scoped repository AGENTS.md instructions. */
 export async function discoverAgentsInstructions(
   options: AgentsInstructionDiscoveryOptions,
 ): Promise<readonly string[]> {
+  const io = { ...defaultDiscoveryIO, ...options.io };
   const workspace = await realpath(resolve(options.workspace));
   const [userContent, repositoryFiles] = await Promise.all([
     readOptionalFile(options.userAgentsPath),
-    discoverRepositoryFiles(workspace),
+    discoverRepositoryFiles(workspace, io),
   ]);
   const prompts: string[] = [];
 
@@ -45,21 +58,32 @@ export async function discoverAgentsInstructions(
   return prompts;
 }
 
-async function discoverRepositoryFiles(workspace: string): Promise<RepositoryAgentsFile[]> {
+async function discoverRepositoryFiles(
+  workspace: string,
+  io: AgentsInstructionDiscoveryIO,
+): Promise<RepositoryAgentsFile[]> {
   const paths: string[] = [];
-  await walk(workspace, paths);
+  await walk(workspace, paths, io);
   const files = await Promise.all(
-    paths.map(async (path): Promise<RepositoryAgentsFile> => {
+    paths.map(async (path): Promise<RepositoryAgentsFile | undefined> => {
+      let content: string;
+      try {
+        content = await readFile(path, "utf8");
+      } catch (error) {
+        if (isSkippableRepositoryPathError(error)) return undefined;
+        throw error;
+      }
       const relativePath = stableRelative(workspace, path);
       const directory = relativePath.slice(0, -AGENTS_FILENAME.length).replace(/\/$/, "");
       return {
         path: relativePath,
         scope: directory.length === 0 ? "." : directory,
-        content: await readFile(path, "utf8"),
+        content,
       };
     }),
   );
   return files
+    .filter((file): file is RepositoryAgentsFile => file !== undefined)
     .filter((file) => file.content.trim().length > 0)
     .sort(
       (left, right) =>
@@ -67,18 +91,28 @@ async function discoverRepositoryFiles(workspace: string): Promise<RepositoryAge
     );
 }
 
-async function walk(directory: string, found: string[]): Promise<void> {
-  const entries = await readdir(directory, { withFileTypes: true });
-  entries.sort((left, right) => compare(left.name, right.name));
+async function walk(
+  directory: string,
+  found: string[],
+  io: AgentsInstructionDiscoveryIO,
+): Promise<void> {
+  let entries: readonly Dirent[];
+  try {
+    entries = await io.readDirectory(directory);
+  } catch (error) {
+    if (isSkippableRepositoryPathError(error)) return;
+    throw error;
+  }
+  const sortedEntries = [...entries].sort((left, right) => compare(left.name, right.name));
 
-  for (const entry of entries) {
+  for (const entry of sortedEntries) {
     if (entry.isFile() && entry.name === AGENTS_FILENAME) {
       found.push(join(directory, entry.name));
     }
   }
-  for (const entry of entries) {
+  for (const entry of sortedEntries) {
     if (!entry.isDirectory() || SKIPPED_DIRECTORIES.has(entry.name)) continue;
-    await walk(join(directory, entry.name), found);
+    await walk(join(directory, entry.name), found, io);
   }
 }
 
@@ -133,6 +167,11 @@ function pathDepth(path: string): number {
 
 function compare(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function isSkippableRepositoryPathError(error: unknown): boolean {
+  if (!isNodeError(error)) return false;
+  return ["EACCES", "EISDIR", "ELOOP", "ENOENT", "ENOTDIR", "EPERM"].includes(error.code ?? "");
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

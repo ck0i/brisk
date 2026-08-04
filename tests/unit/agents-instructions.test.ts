@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,6 +54,53 @@ describe("AGENTS.md discovery", () => {
     expect(repository).not.toContain("git internals");
   });
 
+  test("skips repository subtrees that Windows refuses to scan", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-agents-denied-"));
+    temporaryDirectories.push(root);
+    const workspace = join(root, "workspace");
+    const readable = join(workspace, "readable");
+    const denied = join(workspace, "denied");
+    await Promise.all([mkdir(readable, { recursive: true }), mkdir(denied, { recursive: true })]);
+    await Promise.all([
+      writeFile(join(workspace, "AGENTS.md"), "repository root"),
+      writeFile(join(readable, "AGENTS.md"), "readable rules"),
+    ]);
+
+    const prompts = await discoverAgentsInstructions({
+      workspace,
+      userAgentsPath: join(root, "missing", "AGENTS.md"),
+      io: {
+        async readDirectory(path) {
+          if (path === denied) throw filesystemError("EPERM", `Cannot scandir ${path}`);
+          return await readdir(path, { withFileTypes: true });
+        },
+      },
+    });
+
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("repository root");
+    expect(prompts[0]).toContain("readable rules");
+  });
+
+  test("does not hide unexpected repository scan failures", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-agents-io-error-"));
+    temporaryDirectories.push(root);
+    const workspace = join(root, "workspace");
+    await mkdir(workspace);
+
+    await expect(
+      discoverAgentsInstructions({
+        workspace,
+        userAgentsPath: join(root, "missing", "AGENTS.md"),
+        io: {
+          async readDirectory() {
+            throw filesystemError("EIO", "repository storage failed");
+          },
+        },
+      }),
+    ).rejects.toThrow("repository storage failed");
+  });
+
   test("returns no additional system blocks when no instruction files exist", async () => {
     const root = await mkdtemp(join(tmpdir(), "brisk-agents-empty-"));
     temporaryDirectories.push(root);
@@ -68,3 +115,7 @@ describe("AGENTS.md discovery", () => {
     ).toEqual([]);
   });
 });
+
+function filesystemError(code: string, message: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(message), { code });
+}

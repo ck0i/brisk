@@ -65,7 +65,7 @@ describe("HashlineWorkspace read", () => {
     });
   });
 
-  test("jails reads by default, detects symlink escapes, and supports artifact readers", async () => {
+  test("reads authored absolute paths, rejects relative symlink escapes, and supports artifacts", async () => {
     await withWorkspace(async ({ root, outside }) => {
       const outsideFile = path.join(outside, "secret.txt");
       await writeFile(outsideFile, "secret");
@@ -75,13 +75,10 @@ describe("HashlineWorkspace read", () => {
         artifactReader: { read: async () => new TextEncoder().encode("artifact\n") },
       });
 
-      await expect(service.read({ path: outsideFile })).rejects.toThrow("escapes the workspace");
       await expect(service.read({ path: "escape/secret.txt" })).rejects.toThrow(
         "through a symlink",
       );
-      expect(
-        (await service.read({ path: outsideFile, readOutsideWorkspace: true })).content,
-      ).toContain("1:secret");
+      expect((await service.read({ path: outsideFile })).content).toContain("1:secret");
       expect((await service.read({ path: "artifact://result/1" })).header).toMatch(
         /^\[artifact:\/\/result\/1#[0-9A-F]{4}\]$/,
       );
@@ -239,14 +236,14 @@ describe("HashlineWorkspace edit", () => {
     });
   });
 
-  test("surfaces compact native parse diagnostics and rejects outside edit paths", async () => {
-    await withWorkspace(async ({ root, outside, service }) => {
+  test("surfaces compact native parse diagnostics and rejects relative traversal", async () => {
+    await withWorkspace(async ({ root, service }) => {
       await writeFile(path.join(root, "a.txt"), "a\n");
       await expect(service.edit({ patch: "[a.txt#BAD]\nPUT 1.=1:\n+A" })).rejects.toThrow(
         "Invalid Hashline patch: Input header must be",
       );
       await expect(
-        service.edit({ patch: `[${path.join(outside, "x.txt")}#1234]\nPUT 1.=1:\n+x` }),
+        service.edit({ patch: "[../outside/x.txt#1234]\nPUT 1.=1:\n+x" }),
       ).rejects.toThrow("escapes the workspace");
     });
   });
@@ -277,6 +274,22 @@ describe("HashlineWorkspace write", () => {
       expect(Uint8Array.from(await readFile(filePath))).toEqual(
         Uint8Array.from([0xef, 0xbb, 0xbf, ...new TextEncoder().encode("alpha\r\nbeta\r\n")]),
       );
+    });
+  });
+
+  test("writes authored absolute paths outside the workspace", async () => {
+    await withWorkspace(async ({ outside, service }) => {
+      const target = path.join(outside, "absolute.txt");
+      const pending = await service.write({
+        path: target,
+        content: "outside\n",
+        mode: "create",
+      });
+
+      expect(await Bun.file(target).exists()).toBe(false);
+      expect(pending.preview.files[0]?.path).toBe(target);
+      await pending.commit();
+      expect(await readFile(target, "utf8")).toBe("outside\n");
     });
   });
 

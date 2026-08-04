@@ -157,7 +157,8 @@ export function createBashTool(
 ): ToolDefinition<BashInput> {
   return {
     name: "bash",
-    description: "Run a command in a jailed workspace shell with bounded, streamed output.",
+    description:
+      "Run a shell command with bounded, streamed output. Relative cwd paths use the workspace; an absolute cwd may be anywhere on the computer.",
     inputSchema: BASH_SCHEMA,
     parse: parseBashInput,
     timeoutMs: MAX_BASH_TIMEOUT_MS + 5_000,

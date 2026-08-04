@@ -42,7 +42,7 @@ Use `--json` on list/status/doctor commands. Do not attach `auth.db`, callbacks,
 
 **Stale Hashline tag** — `read` again and patch from the new `[path#TAG]` header.
 
-**Unexpected deny** — Check footer permission mode and approval reason; paths cannot escape the workspace via symlinks or `..`.
+**Unexpected deny** — Check footer permission mode and approval reason. Relative paths cannot escape the workspace via symlinks or `..`; use an explicit absolute path to operate elsewhere. Outside-workspace mutations can still require approval.
 
 **Truncated output** — Follow the `artifact://` reference in the tool result.
 

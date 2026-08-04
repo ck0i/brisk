@@ -86,6 +86,18 @@ describe("searchWorkspace", () => {
     expect(visible.matches.every((match) => !match.path.startsWith("./"))).toBe(true);
   });
 
+  test("searches authored absolute path roots and returns absolute matches", async () => {
+    const workspace = await createSearchWorkspace();
+    const outside = await createSearchWorkspace();
+    const result = await searchWorkspace(
+      workspace,
+      { pattern: "needle", path: outside, globs: ["*.ts"] },
+      { forceFallback: true },
+    );
+
+    expect(result.matches.map((match) => match.path)).toEqual([join(outside, "src", "visible.ts")]);
+  });
+
   test("fallback cancellation stops an active scan", async () => {
     const workspace = await temporaryDirectory();
     await writeFile(join(workspace, "large.txt"), `${"match\n".repeat(5_000)}`);

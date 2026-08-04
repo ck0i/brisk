@@ -38,16 +38,22 @@ describe("WorkspacePaths", () => {
     });
   });
 
-  test("allows outside reads only with the explicit per-call option", async () => {
+  test("allows authored absolute read and write paths outside the workspace", async () => {
     await withDirectories(async ({ workspace, outside }) => {
       const target = path.join(outside, "outside.txt");
+      const created = path.join(outside, "created.txt");
       await writeFile(target, "outside");
       const paths = new WorkspacePaths(workspace);
 
-      expect(() => paths.resolveRead(target)).toThrow("escapes the workspace");
-      expect(paths.resolveRead(target, { readOutsideWorkspace: true })).toMatchObject({
+      expect(paths.resolveRead(target)).toMatchObject({
         canonicalPath: await realpath(target),
         displayPath: await realpath(target),
+        insideWorkspace: false,
+      });
+      expect(paths.resolveWrite(created)).toMatchObject({
+        canonicalPath: created,
+        displayPath: created,
+        insideWorkspace: false,
       });
     });
   });

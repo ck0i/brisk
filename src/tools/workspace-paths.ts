@@ -16,7 +16,7 @@ export interface ResolveWritePathOptions {
   readonly operation?: "write" | "delete";
 }
 
-/** Resolves authored paths against a canonical workspace and enforces its write jail. */
+/** Resolves relative paths against the workspace and canonicalizes authored absolute paths. */
 export class WorkspacePaths {
   readonly root: string;
 
@@ -70,18 +70,20 @@ export class WorkspacePaths {
     if (authoredPath.length === 0) throw new WorkspacePathError("Path cannot be empty");
     if (authoredPath.includes("\0")) throw new WorkspacePathError("Path contains a NUL byte");
 
-    const candidate = path.isAbsolute(authoredPath)
+    const authoredAbsolute = path.isAbsolute(authoredPath);
+    const candidate = authoredAbsolute
       ? path.resolve(authoredPath)
       : path.resolve(this.root, authoredPath);
-    if (!allowOutside && !isWithin(this.root, candidate)) {
-      throw new WorkspacePathError(`Path escapes the workspace: ${JSON.stringify(authoredPath)}`);
+    const outsideAllowed = allowOutside || authoredAbsolute;
+    if (!outsideAllowed && !isWithin(this.root, candidate)) {
+      throw new WorkspacePathError(`Relative path escapes the workspace: ${JSON.stringify(authoredPath)}`);
     }
 
     const canonicalPath = canonicalizeExistingAncestor(candidate);
     const insideWorkspace = isWithin(this.root, canonicalPath);
-    if (!allowOutside && !insideWorkspace) {
+    if (!outsideAllowed && !insideWorkspace) {
       throw new WorkspacePathError(
-        `Path escapes the workspace through a symlink: ${JSON.stringify(authoredPath)}`,
+        `Relative path escapes the workspace through a symlink: ${JSON.stringify(authoredPath)}`,
       );
     }
 

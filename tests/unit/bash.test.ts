@@ -46,8 +46,9 @@ describe.skipIf(process.platform === "win32")("runBash", () => {
     ).toBe("stderr");
   });
 
-  test("jails cwd and inherits the environment with overrides", async () => {
+  test("resolves relative cwd safely and accepts authored absolute cwd paths", async () => {
     const workspace = await temporaryDirectory();
+    const outside = await temporaryDirectory();
     await mkdir(join(workspace, "child"));
     const result = await runBash(workspace, artifactStore(workspace), {
       command: 'printf \'%s:%s\' "$(basename "$PWD")" "$BRISK_TEST_VALUE"',
@@ -56,6 +57,11 @@ describe.skipIf(process.platform === "win32")("runBash", () => {
     });
 
     expect(result.stdout).toBe("child:configured");
+    const external = await runBash(workspace, artifactStore(workspace), {
+      command: "pwd",
+      cwd: outside,
+    });
+    expect(external.stdout.trim()).toBe(outside);
     await expect(
       runBash(workspace, artifactStore(workspace), { command: "pwd", cwd: ".." }),
     ).rejects.toThrow("escapes workspace");

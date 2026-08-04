@@ -47,4 +47,4 @@ Brisk injects user `AGENTS.md` (beside global config) and workspace `AGENTS.md` 
 
 ## Tools (summary)
 
-Workspace-jailed `read`, Hashline `edit`/`write`, `search`, `find`, `list`, and bounded `bash`. Edits use staged diffs and approval before commit. Subagents: `task` (background) and `task_status`; see [Architecture](../ARCHITECTURE.md).
+`read`, Hashline `edit`/`write`, `search`, `find`, `list`, and bounded `bash` resolve relative paths from the workspace and accept authored absolute paths anywhere on the computer. Relative traversal and relative symlink escapes remain rejected. Edits use staged diffs and permission approval before commit. Subagents: `task` (background) and `task_status`; see [Architecture](../ARCHITECTURE.md).

@@ -30,6 +30,17 @@ describe("findFiles", () => {
     expect(hidden.paths.every((path) => !path.startsWith("./"))).toBe(true);
   });
 
+  test("finds files below authored absolute path roots", async () => {
+    const workspace = await createWorkspace();
+    const outside = await createWorkspace();
+    const result = await findFiles(workspace, { patterns: "**/*.ts", path: outside });
+
+    expect(result.paths).toEqual([
+      join(outside, "src", "a.ts"),
+      join(outside, "src", "nested", "b.ts"),
+    ]);
+  });
+
   test("sorts before applying limits", async () => {
     const workspace = await createWorkspace();
     const result = await findFiles(workspace, {
@@ -60,6 +71,17 @@ describe("listFiles", () => {
       "src/nested",
     ]);
     expect(deep.entries.some((entry) => entry.path === "src/nested/b.ts")).toBe(false);
+  });
+
+  test("lists entries below authored absolute path roots", async () => {
+    const workspace = await createWorkspace();
+    const outside = await createWorkspace();
+    const result = await listFiles(workspace, { path: outside });
+
+    expect(result.entries).toEqual([
+      { path: join(outside, "root.txt"), type: "file" },
+      { path: join(outside, "src"), type: "directory" },
+    ]);
   });
 
   test("supports hidden entries and stable limits", async () => {

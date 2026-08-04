@@ -19,11 +19,12 @@ describe("Brisk system prompt", () => {
     expect(BRISK_SYSTEM_PROMPT).toContain("Never claim to have read, changed, executed");
   });
 
-  test("pins tool paths to the active workspace", () => {
+  test("roots relative paths while allowing authored absolute paths", () => {
     const prompt = buildWorkspacePrompt('/home/user/project "quoted"');
     expect(prompt).toContain('"/home/user/project \\"quoted\\""');
-    expect(prompt).toContain("Prefer paths relative to that root");
-    expect(prompt).toContain("Never reuse or invent a workspace path");
+    expect(prompt).toContain("Relative tool paths resolve from that root");
+    expect(prompt).toContain("absolute paths");
+    expect(prompt).toContain("anywhere else on the user's computer");
   });
 
   test("renders the exact current tool catalog with built-in and extension guidance", () => {

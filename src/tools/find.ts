@@ -42,8 +42,8 @@ export async function findFiles(
   const patterns = normalizePatterns(input.patterns);
   const limit = validateLimit(input.limit ?? DEFAULT_FIND_LIMIT);
   const location = await resolveWorkspacePath(workspace, input.path ?? ".");
-  const ignoreRules =
-    input.respectIgnore === false ? [] : await loadIgnoreRules(location.workspace);
+  const ignoreRoot = location.insideWorkspace ? location.workspace : location.path;
+  const ignoreRules = input.respectIgnore === false ? [] : await loadIgnoreRules(ignoreRoot);
   const found = new Set<string>();
 
   for (const pattern of patterns) {
@@ -57,12 +57,14 @@ export async function findFiles(
       onlyFiles: input.includeDirectories !== true,
     })) {
       throwIfAborted(options.signal);
-      const path = stableRelative(location.workspace, resolve(location.path, entry));
-      if (path === ".") continue;
-      if (input.ignoreGenerated !== false && isGeneratedPath(path)) continue;
-      const stat = await lstat(resolve(location.workspace, path));
-      if (isIgnoredPath(path, stat.isDirectory(), ignoreRules)) continue;
-      found.add(normalizeRelative(path));
+      const absolutePath = resolve(location.path, entry);
+      const matchPath = stableRelative(ignoreRoot, absolutePath);
+      const displayPath = stableRelative(location.workspace, absolutePath);
+      if (displayPath === ".") continue;
+      if (input.ignoreGenerated !== false && isGeneratedPath(matchPath)) continue;
+      const stat = await lstat(absolutePath);
+      if (isIgnoredPath(matchPath, stat.isDirectory(), ignoreRules)) continue;
+      found.add(normalizeRelative(displayPath));
     }
   }
 
@@ -73,7 +75,8 @@ export async function findFiles(
 export function createFindTool(workspace: string): ToolDefinition<FindInput> {
   return {
     name: "find",
-    description: "Find workspace files matching one or more glob patterns.",
+    description:
+      "Find files matching one or more glob patterns. Relative paths use the workspace; absolute path roots may target any directory.",
     inputSchema: FIND_SCHEMA,
     readOnly: true,
     parallelSafe: true,
@@ -138,7 +141,7 @@ function normalizePatterns(value: string | readonly string[]): readonly string[]
     if (pattern.length === 0) throw new Error("Find patterns cannot be empty");
     const normalized = pattern.replaceAll("\\", "/");
     if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
-      throw new Error(`Find pattern escapes workspace: ${pattern}`);
+      throw new Error(`Find patterns must be relative to the selected path: ${pattern}`);
     }
   }
   return patterns;

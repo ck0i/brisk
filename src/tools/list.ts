@@ -47,8 +47,8 @@ export async function listFiles(
   const depth = validateDepth(input.depth ?? 1);
   const limit = validateLimit(input.limit ?? DEFAULT_LIST_LIMIT);
   const location = await resolveWorkspacePath(workspace, input.path ?? ".");
-  const ignoreRules =
-    input.respectIgnore === false ? [] : await loadIgnoreRules(location.workspace);
+  const ignoreRoot = location.insideWorkspace ? location.workspace : location.path;
+  const ignoreRules = input.respectIgnore === false ? [] : await loadIgnoreRules(ignoreRoot);
   const entries = new Map<string, ListEntry>();
 
   for (let level = 1; level <= depth; level += 1) {
@@ -63,12 +63,13 @@ export async function listFiles(
     })) {
       throwIfAborted(options.signal);
       const absolutePath = resolve(location.path, child);
-      const path = normalizeRelative(stableRelative(location.workspace, absolutePath));
-      if (path === ".") continue;
-      if (input.ignoreGenerated !== false && isGeneratedPath(path)) continue;
+      const matchPath = normalizeRelative(stableRelative(ignoreRoot, absolutePath));
+      const displayPath = normalizeRelative(stableRelative(location.workspace, absolutePath));
+      if (displayPath === ".") continue;
+      if (input.ignoreGenerated !== false && isGeneratedPath(matchPath)) continue;
       const stat = await lstat(absolutePath);
-      if (isIgnoredPath(path, stat.isDirectory(), ignoreRules)) continue;
-      entries.set(path, { path, type: entryType(stat) });
+      if (isIgnoredPath(matchPath, stat.isDirectory(), ignoreRules)) continue;
+      entries.set(displayPath, { path: displayPath, type: entryType(stat) });
     }
   }
 
@@ -79,7 +80,8 @@ export async function listFiles(
 export function createListTool(workspace: string): ToolDefinition<ListInput> {
   return {
     name: "list",
-    description: "List workspace entries. The default depth lists only immediate children.",
+    description:
+      "List directory entries. Relative paths use the workspace; absolute paths may target any directory. The default depth lists immediate children.",
     inputSchema: LIST_SCHEMA,
     readOnly: true,
     parallelSafe: true,

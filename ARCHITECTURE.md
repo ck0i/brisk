@@ -42,7 +42,7 @@ First-class modes are coordinated by the runtime rather than extension hooks: `/
 
 ## Tools and permissions
 
-`HashlineWorkspace` stages edits; `PermissionManager` and mode policy gate execution. Bash is jailed, bounded, and process-tracked. Artifacts live under private `artifact://` storage.
+`HashlineWorkspace` stages edits; `PermissionManager` and mode policy gate execution. Relative tool paths are rooted at the workspace, while authored absolute paths may target the wider filesystem. Bash is bounded and process-tracked. Artifacts live under private `artifact://` storage.
 
 ## Persistence
 
@@ -58,7 +58,7 @@ Full history stays in `AgentLoop`; `ContextManager` builds the active provider v
 
 ## Security (application-level)
 
-Config rejects inline secrets; workspace paths are canonicalized; writes are previewed and revalidated; approvals redact known env secrets. Not an OS sandbox—review diffs and use `safe` on untrusted trees.
+Config rejects inline secrets; filesystem paths are canonicalized; relative traversal and symlink escapes are rejected; writes are previewed and revalidated; approvals redact known env secrets. Authored absolute paths can operate outside the workspace. Not an OS sandbox; review diffs and use `safe` on untrusted trees.
 
 ## Packaging
 

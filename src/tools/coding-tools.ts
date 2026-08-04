@@ -98,7 +98,7 @@ function createReadTool(
   return {
     name: "read",
     description:
-      "Read a UTF-8 text file with a Hashline snapshot header and numbered edit anchors. Use line ranges for large files; range ends past EOF are clamped.",
+      "Read a UTF-8 text file with a Hashline snapshot header and numbered edit anchors. Relative paths use the workspace; absolute paths may be anywhere. Use line ranges for large files; range ends past EOF are clamped.",
     inputSchema: READ_SCHEMA,
     readOnly: true,
     parallelSafe: true,
@@ -118,7 +118,7 @@ function createEditTool(
   return {
     name: "edit",
     description:
-      "Apply a native Hashline patch. Every section must begin with the exact [path#TAG] header returned by read.",
+      "Apply a native Hashline patch anywhere on the computer. Every section must begin with the exact [path#TAG] header returned by read.",
     inputSchema: EDIT_SCHEMA,
     parse: parseEditInput,
     async execute(input, context) {
@@ -136,7 +136,7 @@ function createWriteTool(
   return {
     name: "write",
     description:
-      "Create a new UTF-8 text file or explicitly replace an entire existing file. Prefer edit for localized changes.",
+      "Create a new UTF-8 text file or explicitly replace an entire existing file. Relative paths use the workspace; absolute paths may be anywhere. Prefer edit for localized changes.",
     inputSchema: WRITE_SCHEMA,
     parse: parseWriteInput,
     async execute(input, context) {

@@ -101,9 +101,23 @@ export async function searchWorkspace(
   const location = await resolveWorkspacePath(workspace, input.path ?? ".");
   throwIfAborted(options.signal);
   const rgPath = options.forceFallback === true ? undefined : findRipgrep(options.rgPath ?? "rg");
-  if (rgPath)
-    return await searchWithRipgrep(location.workspace, location.relative, rgPath, input, options);
-  return await searchWithFallback(location.workspace, location.path, input, options);
+  if (rgPath) {
+    return await searchWithRipgrep(
+      location.workspace,
+      location.relative,
+      rgPath,
+      input,
+      options,
+      location.insideWorkspace,
+    );
+  }
+  return await searchWithFallback(
+    location.workspace,
+    location.path,
+    location.insideWorkspace ? location.workspace : location.path,
+    input,
+    options,
+  );
 }
 
 export function buildRipgrepArguments(input: SearchInput, target = "."): readonly string[] {
@@ -130,7 +144,8 @@ export function createSearchTool(
 ): ToolDefinition<SearchInput> {
   return {
     name: "search",
-    description: "Search workspace text with ripgrep and a Bun filesystem fallback.",
+    description:
+      "Search text with ripgrep and a Bun filesystem fallback. Relative paths use the workspace; absolute paths may target any directory.",
     inputSchema: SEARCH_SCHEMA,
     readOnly: true,
     parallelSafe: true,
@@ -171,11 +186,12 @@ async function searchWithRipgrep(
   rgPath: string,
   input: SearchInput,
   options: SearchOptions,
+  includeWorkspaceIgnores: boolean,
 ): Promise<SearchResult> {
   const limit = input.limit ?? DEFAULT_SEARCH_LIMIT;
   const contextSize = input.context ?? 0;
   const arguments_ = [...buildRipgrepArguments(input, target)];
-  if (input.respectIgnore !== false) {
+  if (input.respectIgnore !== false && includeWorkspaceIgnores) {
     for (const filename of [".gitignore", ".ignore", ".rgignore"]) {
       if (existsSync(resolve(workspace, filename))) arguments_.unshift("--ignore-file", filename);
     }
@@ -323,13 +339,14 @@ type ParsedRecord =
 async function searchWithFallback(
   workspace: string,
   searchRoot: string,
+  ignoreRoot: string,
   input: SearchInput,
   options: SearchOptions,
 ): Promise<SearchResult> {
   const fallbackReason =
     "ripgrep unavailable; using Bun filesystem fallback (root ignore files and JavaScript regex semantics)";
   await options.onOutput?.({ stream: "stderr", data: `${fallbackReason}\n` });
-  const ignoreRules = input.respectIgnore === false ? [] : await loadIgnoreRules(workspace);
+  const ignoreRules = input.respectIgnore === false ? [] : await loadIgnoreRules(ignoreRoot);
   const files: string[] = [];
   const glob = new Bun.Glob("**/*");
   for await (const entry of glob.scan({
@@ -340,12 +357,13 @@ async function searchWithFallback(
     onlyFiles: true,
   })) {
     throwIfAborted(options.signal);
-    const path = normalizeRelative(stableRelative(workspace, resolve(searchRoot, entry)));
-    if (input.hidden !== true && isHiddenPath(path)) continue;
-    if (input.ignoreGenerated !== false && isGeneratedPath(path)) continue;
-    if (!matchesGlobs(path, input.globs ?? [])) continue;
-    if (isIgnoredPath(path, false, ignoreRules)) continue;
-    files.push(path);
+    const absolutePath = resolve(searchRoot, entry);
+    const matchPath = normalizeRelative(stableRelative(ignoreRoot, absolutePath));
+    if (input.hidden !== true && isHiddenPath(matchPath)) continue;
+    if (input.ignoreGenerated !== false && isGeneratedPath(matchPath)) continue;
+    if (!matchesGlobs(matchPath, input.globs ?? [])) continue;
+    if (isIgnoredPath(matchPath, false, ignoreRules)) continue;
+    files.push(normalizeRelative(stableRelative(workspace, absolutePath)));
   }
   files.sort(comparePaths);
 

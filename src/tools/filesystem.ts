@@ -27,34 +27,50 @@ export async function resolveWorkspacePath(
   workspace: string,
   child = ".",
   requireDirectory = true,
-): Promise<{ readonly workspace: string; readonly path: string; readonly relative: string }> {
+): Promise<{
+  readonly workspace: string;
+  readonly path: string;
+  readonly relative: string;
+  readonly insideWorkspace: boolean;
+}> {
   const workspacePath = await realpath(resolve(workspace));
-  const candidate = isAbsolute(child) ? resolve(child) : resolve(workspacePath, child);
-  assertContained(workspacePath, candidate);
+  const authoredAbsolute = isAbsolute(child);
+  const candidate = authoredAbsolute ? resolve(child) : resolve(workspacePath, child);
+  if (!authoredAbsolute) assertContained(workspacePath, candidate);
   const resolvedCandidate = await realpath(candidate);
-  assertContained(workspacePath, resolvedCandidate);
+  const insideWorkspace = isContained(workspacePath, resolvedCandidate);
+  if (!authoredAbsolute && !insideWorkspace) {
+    throw new Error(`Relative path escapes workspace through a symlink: ${child}`);
+  }
   if (requireDirectory) {
     const entry = await lstat(resolvedCandidate);
-    if (!entry.isDirectory()) throw new Error(`Workspace path is not a directory: ${child}`);
+    if (!entry.isDirectory()) throw new Error(`Path is not a directory: ${child}`);
   }
   return {
     workspace: workspacePath,
     path: resolvedCandidate,
     relative: stableRelative(workspacePath, resolvedCandidate),
+    insideWorkspace,
   };
 }
 
 export function assertContained(root: string, candidate: string): void {
-  const child = relative(root, candidate);
-  if (child === "") return;
-  if (child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
-    throw new Error(`Path escapes workspace: ${candidate}`);
-  }
+  if (!isContained(root, candidate)) throw new Error(`Relative path escapes workspace: ${candidate}`);
 }
 
 export function stableRelative(root: string, path: string): string {
-  const value = relative(root, path).split(sep).join("/");
+  const absolute = resolve(path);
+  if (!isContained(root, absolute)) return absolute.split(sep).join("/");
+  const value = relative(root, absolute).split(sep).join("/");
   return value === "" ? "." : value;
+}
+
+function isContained(root: string, candidate: string): boolean {
+  const child = relative(root, candidate);
+  return (
+    child === "" ||
+    (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
+  );
 }
 
 export function normalizeRelative(path: string): string {

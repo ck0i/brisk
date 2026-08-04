@@ -26,6 +26,9 @@ import { cleanupToolProcesses } from "../tools/process-registry.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import type { TuiRuntime } from "../app.tsx";
 import { RuntimeExtensions } from "./extension-runtime.ts";
+import { BtwRuntime } from "./btw-runtime.ts";
+import { GoalRuntime } from "./goal-runtime.ts";
+import { LoopRuntime } from "./loop-runtime.ts";
 import { SessionRuntime } from "./session-runtime.ts";
 import { RuntimeSubagents } from "./subagent-runtime.ts";
 import { AgentUiController } from "../ui/agent-controller.ts";
@@ -33,7 +36,7 @@ import { UiApprovalController } from "../ui/approval-controller.ts";
 import { UiAuthController } from "../ui/auth-controller.ts";
 import { UiPickerController } from "../ui/picker-controller.ts";
 import { BUILT_IN_SLASH_COMMANDS } from "../ui/slash-commands.ts";
-import { UiStore, type UiMessage, type UiToolCard } from "../ui/state.ts";
+import { UiStore, type UiMessage, type UiSnapshot, type UiToolCard } from "../ui/state.ts";
 import { UiTextInputController } from "../ui/text-input-controller.ts";
 import {
   extractToolDiff,
@@ -63,6 +66,9 @@ export class InteractiveRuntime {
   private codingServices: CodingToolServices | undefined;
   private subagents: RuntimeSubagents | undefined;
   private extensions: RuntimeExtensions | undefined;
+  private btw: BtwRuntime | undefined;
+  private goalMode: GoalRuntime | undefined;
+  private loopMode: LoopRuntime | undefined;
   private readonly approvalController: UiApprovalController;
   private readonly authController: UiAuthController;
   private readonly pickerController: UiPickerController;
@@ -99,6 +105,9 @@ export class InteractiveRuntime {
         ? {}
         : { permissionMode: options.command.permissionMode }),
       ...(options.command.model === undefined ? {} : { defaultModel: options.command.model }),
+      ...(options.command.goalMaxTurns === undefined
+        ? {}
+        : { goalMaxTurns: options.command.goalMaxTurns }),
     };
     const configManager = await ConfigManager.create({
       paths,
@@ -112,6 +121,7 @@ export class InteractiveRuntime {
     try {
       await runtime.initializeAgentInstructions();
       await runtime.initializeSession();
+      runtime.initializeBuiltInModes();
       await runtime.initializeCodingTools();
       if (options.command.fakeProvider) await runtime.initializeFakeProvider();
       else await runtime.initializeProviderService();
@@ -130,15 +140,11 @@ export class InteractiveRuntime {
       this.addSystem("No model is selected. Use `/login`, `/model`, or configure an API key.");
       return true;
     }
-    const sessionId = this.sessionRuntime?.sessionId ?? "unknown";
-    await this.extensions?.emitLifecycle("turn-start", { sessionId });
+    this.loopMode?.capturePrompt(value);
     try {
-      if (this.store.snapshot.busy) await this.controller.steer(value);
-      else await this.controller.submit(value);
+      await this.runAgentPrompt(value, this.store.snapshot.busy ? "steer" : "submit");
     } catch {
       // Provider failures are normalized and already visible through AgentUiController.
-    } finally {
-      await this.extensions?.emitLifecycle("turn-end", { sessionId });
     }
     return true;
   }
@@ -189,6 +195,11 @@ export class InteractiveRuntime {
     if (this.closed) return;
     this.closed = true;
     this.compactionController?.abort(new DOMException("Closing", "AbortError"));
+    await this.btw?.dispose();
+    this.btw = undefined;
+    this.loopMode?.detach();
+    this.goalMode?.detachAgent();
+    this.goalMode?.clearStatus();
     this.controller?.cancel();
     this.controller?.dispose();
     this.subagents?.dispose();
@@ -233,6 +244,100 @@ export class InteractiveRuntime {
     this.hydrateSessionUi();
   }
 
+  private initializeBuiltInModes(): void {
+    const session = this.requireSessionRuntime();
+    this.loopMode = new LoopRuntime({
+      notify: (message) => this.addSystem(message),
+      setStatus: (loopStatus) => this.store.update({ loopStatus }),
+    });
+    this.goalMode = new GoalRuntime({
+      session,
+      configuredMaxTurns: () =>
+        this.configManager.current.goalMaxTurns ?? configuredGoalMaxTurns(process.env),
+      notify: (message) => this.addSystem(message),
+      setStatus: (goalStatus) => this.store.update({ goalStatus }),
+    });
+    this.goalMode.restore();
+    this.btw = new BtwRuntime({
+      store: this.store,
+      createProvider: (threadId) => {
+        const model = this.agentLoop?.modelId;
+        if (!model) throw new Error("No main-agent model is selected");
+        if (this.options.command.fakeProvider) {
+          return {
+            provider: new FakeProvider(
+              Array.from({ length: 32 }, () => ({
+                text: "The fake BTW side agent completed successfully.",
+                usage: { inputTokens: 8, outputTokens: 7, cost: 0 },
+              })),
+            ),
+            model,
+            label: `${model} · ${this.store.snapshot.effort}`,
+          };
+        }
+        const providers = this.providerService;
+        if (!providers) throw new Error("Provider service is unavailable");
+        const selection = providers.createIsolatedProvider(
+          model,
+          threadId,
+          this.configManager.current.effort,
+        );
+        return {
+          provider: selection.provider,
+          model: selection.modelSpecifier,
+          label: `${selection.modelSpecifier} · ${selection.effort}`,
+        };
+      },
+      createTools: async (threadId) => {
+        const tools = new ToolRegistry();
+        await registerCodingTools(tools, {
+          workspace: this.options.workspace,
+          artifactsDirectory: `${this.requireSessionRuntime().artifactDirectory}/${threadId}`,
+          permissionMode: this.configManager.current.permissionMode,
+          approvalHandler: this.approvalController,
+          enabledTools: ["read", "search", "find", "list"],
+        });
+        return tools;
+      },
+      createContext: async (signal) => {
+        const loop = this.agentLoop;
+        const manager = this.contextManager;
+        if (!loop || !manager) throw new Error("Main-agent context is unavailable");
+        const messages = this.goalMode?.filterContext(loop.messages) ?? loop.messages;
+        return await manager.prepare(messages, loop.modelId, signal);
+      },
+      getMainMessages: () => this.agentLoop?.messages ?? [],
+      getLiveStatus: () => btwLiveStatus(this.store.snapshot),
+      additionalSystemPrompt: () => [
+        ...this.agentInstructionPrompts,
+        ...(this.goalMode?.dynamicSystemPrompt() ?? []),
+      ],
+      onCost: async (cost) => {
+        this.store.update({ cost: this.store.snapshot.cost + cost });
+        try {
+          await this.requireSessionRuntime().recordSubagentCost(cost);
+        } catch (error) {
+          this.addSystem(`Unable to persist BTW cost: ${redactedErrorMessage(error)}`);
+        }
+      },
+    });
+  }
+
+  private async runAgentPrompt(text: string, delivery: "submit" | "steer" | "goal"): Promise<void> {
+    const controller = this.controller;
+    if (!controller) throw new Error("No model is selected");
+    const sessionId = this.sessionRuntime?.sessionId ?? "unknown";
+    await this.extensions?.emitLifecycle("turn-start", { sessionId });
+    try {
+      if (controller !== this.controller) return;
+      if (delivery === "steer") await controller.steer(text);
+      else if (delivery === "goal") await controller.submitInternal(text, "goal-control");
+      else await controller.submit(text);
+    } finally {
+      await this.extensions?.emitLifecycle("turn-end", { sessionId });
+    }
+  }
+
   private async initializeCodingTools(): Promise<void> {
     const session = this.requireSessionRuntime();
     this.codingServices = await registerCodingTools(this.tools, {
@@ -241,6 +346,7 @@ export class InteractiveRuntime {
       permissionMode: this.configManager.current.permissionMode,
       approvalHandler: this.approvalController,
     });
+    this.tools.register(this.goalMode!.tool);
   }
 
   private async initializeExtensions(): Promise<void> {
@@ -413,6 +519,9 @@ export class InteractiveRuntime {
       initialUsage: session.usage,
       contextLifecycle: contextManager,
       additionalSystemPrompt: this.agentInstructionPrompts,
+      dynamicSystemPrompt: () => this.goalMode?.dynamicSystemPrompt() ?? [],
+      contextFilter: (messages) => this.goalMode?.filterContext(messages) ?? messages,
+      stopWhen: () => this.goalMode?.consumeStopRequested() ?? false,
     });
     this.installAgentLoop(loop);
     if (session.selectedModelSpecifier !== "fake/brisk-demo") {
@@ -444,6 +553,9 @@ export class InteractiveRuntime {
           initialUsage: session.usage,
           contextLifecycle: contextManager,
           additionalSystemPrompt: this.agentInstructionPrompts,
+          dynamicSystemPrompt: () => this.goalMode?.dynamicSystemPrompt() ?? [],
+          contextFilter: (messages) => this.goalMode?.filterContext(messages) ?? messages,
+          stopWhen: () => this.goalMode?.consumeStopRequested() ?? false,
         }),
       );
     } else {
@@ -524,6 +636,8 @@ export class InteractiveRuntime {
       this.store.update({ status: "session write failed", notice: error.message });
       this.addSystem(`Session persistence failed: ${error.message}`);
     });
+    this.loopMode?.attach(loop, async (prompt) => await this.runAgentPrompt(prompt, "submit"));
+    this.goalMode?.attach(loop, async (prompt) => await this.runAgentPrompt(prompt, "goal"));
   }
 
   private hydrateSessionUi(): void {
@@ -562,6 +676,7 @@ export class InteractiveRuntime {
     await this.extensions?.emitLifecycle("session-end", { sessionId: session.sessionId });
     await this.teardownAgent();
     await session.createNew(provider, model);
+    this.goalMode?.restore();
     await this.resetSessionTools();
     this.hydrateSessionUi();
     await this.activateCurrentSessionModel();
@@ -599,6 +714,7 @@ export class InteractiveRuntime {
     await this.extensions?.emitLifecycle("session-end", { sessionId: session.sessionId });
     await this.teardownAgent();
     await session.open(id);
+    this.goalMode?.restore();
     this.providerService?.setSessionId(session.sessionId);
     await this.resetSessionTools();
     this.hydrateSessionUi();
@@ -635,6 +751,9 @@ export class InteractiveRuntime {
   }
 
   private async teardownAgent(): Promise<void> {
+    await this.btw?.close();
+    this.loopMode?.detach();
+    this.goalMode?.detachAgent();
     this.subagents?.dispose();
     this.subagents = undefined;
     this.controller?.cancel();
@@ -687,9 +806,10 @@ export class InteractiveRuntime {
   }
 
   private async executeCommand(commandLine: string, tui: TuiRuntime): Promise<boolean> {
-    const [parsedName, ...parts] = commandLine.trim().split(/\s+/);
-    const name = parsedName ?? "";
-    const argument = parts.join(" ");
+    const trimmed = commandLine.trim();
+    const separator = trimmed.search(/\s/);
+    const name = separator === -1 ? trimmed : trimmed.slice(0, separator);
+    const argument = separator === -1 ? "" : trimmed.slice(separator).trim();
     switch (name) {
       case "/quit":
         tui.exit();
@@ -705,6 +825,21 @@ export class InteractiveRuntime {
         return true;
       case "/effort":
         await this.changeEffort(argument === "subagent" || argument === "child");
+        return true;
+      case "/loop":
+        this.loopMode?.execute(argument, !this.store.snapshot.busy);
+        return true;
+      case "/goal":
+        await this.goalMode?.execute(argument);
+        return true;
+      case "/btw":
+        if (!argument) {
+          this.addSystem("Usage: /btw <side question>");
+        } else if (this.btw?.open) {
+          this.addSystem("A BTW side thread is already open.");
+        } else if (!(await this.btw?.start(argument))) {
+          this.addSystem("Unable to start the BTW side thread.");
+        }
         return true;
       case "/compact":
         await this.compactContext();
@@ -818,6 +953,13 @@ export class InteractiveRuntime {
           ["maxSubagentDepth"],
           "Maximum subagent depth",
           config.maxSubagentDepth,
+          0,
+        );
+      case "goalMaxTurns":
+        return await this.changeIntegerSetting(
+          ["goalMaxTurns"],
+          "Maximum autonomous goal continuation turns",
+          config.goalMaxTurns ?? 0,
           0,
         );
       case "compaction.enabled":
@@ -1310,6 +1452,11 @@ function settingsOptions(config: BriskConfig): readonly {
       description: String(config.maxSubagentDepth),
     },
     {
+      id: "goalMaxTurns",
+      label: "Goal continuation limit",
+      description: config.goalMaxTurns === undefined ? "unlimited" : String(config.goalMaxTurns),
+    },
+    {
       id: "compaction.enabled",
       label: "Automatic compaction",
       description: config.compaction.enabled ? "enabled" : "disabled",
@@ -1348,6 +1495,7 @@ function uiMessagesFromHistory(messages: readonly Message[]): UiMessage[] {
 
   for (const [index, message] of messages.entries()) {
     if (message.role === "user") {
+      if (message.internal) continue;
       visible.push({ id: `history-user-${index}`, role: "user", content: message.content });
       continue;
     }
@@ -1433,4 +1581,35 @@ function formatContextInspection(inspection: ContextInspection): string {
 function helpText(): string {
   const commands = BUILT_IN_SLASH_COMMANDS.map((command) => `\`${command.name}\``).join(", ");
   return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: clear composer input\n- Ctrl+D: exit\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n${commands}`;
+}
+
+function configuredGoalMaxTurns(
+  environment: Readonly<Record<string, string | undefined>>,
+): number | undefined {
+  const value = environment.BRISK_GOAL_MAX_TURNS ?? environment.PI_GOAL_MAX_TURNS;
+  if (value === undefined || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
+}
+
+function btwLiveStatus(snapshot: UiSnapshot): string {
+  const lines = [`Main agent state: ${snapshot.busy ? "running" : "idle"}.`];
+  const activeAssistant = [...snapshot.messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.streaming);
+  if (activeAssistant?.content.trim()) {
+    const content = activeAssistant.content.trim();
+    lines.push(
+      `Current main-assistant response excerpt:\n${content.length <= 2_500 ? content : content.slice(-2_500)}`,
+    );
+  }
+  const activeTools = snapshot.messages.flatMap((message) =>
+    (message.tools ?? [])
+      .filter((tool) => tool.status === "pending" || tool.status === "running")
+      .map((tool) => (tool.summary ? `${tool.name} · ${tool.summary}` : tool.name)),
+  );
+  if (activeTools.length > 0) lines.push(`Main tools currently running: ${activeTools.join("; ")}`);
+  if (snapshot.goalStatus) lines.push(`Main ${snapshot.goalStatus}.`);
+  if (snapshot.loopStatus) lines.push(`Main ${snapshot.loopStatus}.`);
+  return lines.join("\n\n");
 }

@@ -156,6 +156,12 @@ export interface ChildSessionEntry extends SessionEntryBase {
   readonly child: ChildSessionReference;
 }
 
+export interface ModeStateEntry extends SessionEntryBase {
+  readonly type: "mode_state";
+  readonly key: string;
+  readonly value: JsonValue;
+}
+
 export interface CancellationEntry extends SessionEntryBase {
   readonly type: "cancellation";
   readonly reason?: string;
@@ -183,6 +189,7 @@ export type SessionEntry =
   | CompactionEntry
   | ModelChangeEntry
   | ChildSessionEntry
+  | ModeStateEntry
   | CancellationEntry
   | ErrorEntry;
 
@@ -220,6 +227,7 @@ export type SessionEntryInput =
   | { readonly type: "compaction"; readonly compaction: CompactionMetadata }
   | { readonly type: "model_change"; readonly provider: string; readonly model: string }
   | { readonly type: "child_session"; readonly child: ChildSessionReference }
+  | { readonly type: "mode_state"; readonly key: string; readonly value: JsonValue }
   | { readonly type: "cancellation"; readonly reason?: string }
   | {
       readonly type: "error";

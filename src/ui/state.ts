@@ -59,6 +59,21 @@ export interface UiAgentPanelState {
   selectedAgentId: string;
 }
 
+export interface UiBtwMessage {
+  id: string;
+  role: "user" | "assistant" | "error";
+  content: string;
+  streaming?: boolean;
+}
+
+export interface UiBtwState {
+  id: string;
+  model: string;
+  status: string;
+  busy: boolean;
+  messages: readonly UiBtwMessage[];
+  activeTools: readonly string[];
+}
 export interface UiApprovalPrompt {
   id: string;
   toolName: string;
@@ -127,6 +142,9 @@ export interface UiSnapshot {
   agents: readonly UiAgentIndicator[];
   extensionUi: readonly UiExtensionContribution[];
   extensionKeybindings: readonly string[];
+  loopStatus: string | undefined;
+  goalStatus: string | undefined;
+  btw?: UiBtwState;
   agentPanel?: UiAgentPanelState;
   approval?: UiApprovalPrompt;
   picker?: UiPickerPrompt;
@@ -143,6 +161,9 @@ export type UiTextInputDecisionHandler = (id: string, value: string | undefined)
 export type UiAuthDecisionHandler = (id: string, value: string | undefined) => void;
 export type UiAgentDecision = "open" | "cancel";
 export type UiAgentDecisionHandler = (id: string, decision: UiAgentDecision) => void;
+export type UiBtwDecision =
+  { readonly type: "ask"; readonly question: string } | { readonly type: "close" };
+export type UiBtwDecisionHandler = (id: string, decision: UiBtwDecision) => boolean | void;
 
 export class UiStore {
   private current: UiSnapshot;
@@ -152,6 +173,7 @@ export class UiStore {
   private textInputDecisionHandler: UiTextInputDecisionHandler | undefined;
   private authDecisionHandler: UiAuthDecisionHandler | undefined;
   private agentDecisionHandler: UiAgentDecisionHandler | undefined;
+  private btwDecisionHandler: UiBtwDecisionHandler | undefined;
 
   constructor(workspace: string, mode: UiSnapshot["mode"] = "write") {
     this.current = {
@@ -171,6 +193,8 @@ export class UiStore {
       messages: [],
       agents: [],
       extensionUi: [],
+      loopStatus: undefined,
+      goalStatus: undefined,
       extensionKeybindings: [],
     };
   }
@@ -396,6 +420,37 @@ export class UiStore {
     this.agentDecisionHandler = handler;
     return () => {
       if (this.agentDecisionHandler === handler) this.agentDecisionHandler = undefined;
+    };
+  }
+
+  showBtw(btw: UiBtwState): void {
+    this.publish({ ...this.current, btw });
+  }
+
+  updateBtw(id: string, patch: Partial<UiBtwState>): void {
+    const current = this.current.btw;
+    if (!current || current.id !== id) return;
+    this.publish({ ...this.current, btw: { ...current, ...patch } });
+  }
+
+  clearBtw(id?: string): void {
+    if (!this.current.btw || (id !== undefined && this.current.btw.id !== id)) return;
+    const { btw: _btw, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
+  decideBtw(decision: UiBtwDecision): boolean {
+    const btw = this.current.btw;
+    const handler = this.btwDecisionHandler;
+    if (!btw || !handler) return false;
+    return handler(btw.id, decision) !== false;
+  }
+
+  setBtwDecisionHandler(handler: UiBtwDecisionHandler): () => void {
+    if (this.btwDecisionHandler) throw new Error("A BTW decision handler is already registered");
+    this.btwDecisionHandler = handler;
+    return () => {
+      if (this.btwDecisionHandler === handler) this.btwDecisionHandler = undefined;
     };
   }
 

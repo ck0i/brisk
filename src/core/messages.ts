@@ -40,6 +40,8 @@ export interface UserMessage {
   /** ordered after scalar text when translated to provider content blocks */
   readonly images?: readonly ImageContent[];
   readonly timestamp?: number;
+  /** Brisk-owned hidden control messages are persisted but not shown in the main transcript UI. */
+  readonly internal?: "goal-control";
 }
 
 export interface AssistantMessage {

@@ -25,6 +25,11 @@ export class AgentUiController {
     await this.loop.submit(text);
   }
 
+  async submitInternal(text: string, internal: "goal-control"): Promise<void> {
+    this.store.update({ busy: true, status: "goal continuation" });
+    await this.loop.submitInternal(text, internal);
+  }
+
   async steer(text: string): Promise<void> {
     this.store.update({ busy: true, status: "steering" });
     await this.loop.steer(text);
@@ -62,6 +67,7 @@ export class AgentUiController {
     for (const event of events) {
       switch (event.type) {
         case "user_message":
+          if (event.message.internal) break;
           messages.push({
             id: crypto.randomUUID(),
             role: "user",

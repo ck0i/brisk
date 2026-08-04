@@ -18,6 +18,7 @@ import type {
   UiApprovalPrompt,
   UiAuthPrompt,
   UiExtensionSlot,
+  UiBtwState,
   UiMessage,
   UiPickerPrompt,
   UiStore,
@@ -416,6 +417,126 @@ function TextInputOverlay(props: { prompt: UiTextInputPrompt; store: UiStore }) 
   );
 }
 
+function BtwOverlay(props: { btw: UiBtwState; store: UiStore }) {
+  let input: InputRenderable | undefined;
+  let transcript: ScrollBoxRenderable | undefined;
+
+  useKeyboard((key) => {
+    if (!transcript || (key.name !== "pageup" && key.name !== "pagedown")) return;
+    key.preventDefault();
+    key.stopPropagation();
+    const delta = key.name === "pageup" ? -5 : 5;
+    transcript.scrollTop = Math.max(0, transcript.scrollTop + delta);
+  });
+
+  const submit = (): void => {
+    const question = input?.value.trim() ?? "";
+    if (!question || props.btw.busy) return;
+    if (props.store.decideBtw({ type: "ask", question })) input!.value = "";
+  };
+
+  return (
+    <box
+      position="absolute"
+      top={0}
+      left={0}
+      width="100%"
+      height="100%"
+      zIndex={85}
+      alignItems="flex-end"
+      justifyContent="center"
+      paddingRight={1}
+    >
+      <box
+        width="72%"
+        minWidth={54}
+        maxWidth={100}
+        height="85%"
+        minHeight={12}
+        flexDirection="column"
+        border
+        borderColor={COLORS.accent}
+        backgroundColor={COLORS.surface}
+        paddingX={2}
+        paddingY={1}
+      >
+        <text fg={COLORS.accent} height={1} wrapMode="none" truncate>
+          <strong>BTW</strong> · {props.btw.model} · private side thread
+        </text>
+        <text fg={COLORS.muted} height={1} wrapMode="none" truncate>
+          {props.btw.status}
+          {props.btw.activeTools.length > 0
+            ? ` · inspecting ${props.btw.activeTools.join(" · ")}`
+            : ""}
+        </text>
+        <scrollbox
+          ref={(node) => {
+            transcript = node;
+          }}
+          flexGrow={1}
+          width="100%"
+          marginTop={1}
+          paddingRight={1}
+          stickyScroll
+          stickyStart="bottom"
+          viewportCulling
+        >
+          <For each={props.btw.messages}>
+            {(message) => (
+              <box flexDirection="column" marginBottom={1} width="100%">
+                <text
+                  fg={
+                    message.role === "error"
+                      ? COLORS.error
+                      : message.role === "user"
+                        ? COLORS.user
+                        : COLORS.success
+                  }
+                >
+                  <strong>
+                    {message.role === "user"
+                      ? "You"
+                      : message.role === "error"
+                        ? "Side-agent error"
+                        : "BTW"}
+                  </strong>
+                  {message.streaming ? "  ◐" : ""}
+                </text>
+                <text fg={message.role === "error" ? COLORS.error : COLORS.text}>
+                  {message.content || "…"}
+                </text>
+              </box>
+            )}
+          </For>
+        </scrollbox>
+        <box flexDirection="row" height={1} marginTop={1}>
+          <text fg={COLORS.success} width={2}>
+            ›
+          </text>
+          <input
+            ref={(node) => {
+              input = node;
+              queueMicrotask(() => node.focus());
+            }}
+            focused
+            flexGrow={1}
+            placeholder={props.btw.busy ? "Wait for the current answer" : "Ask a follow-up"}
+            placeholderColor={COLORS.muted}
+            textColor={COLORS.text}
+            backgroundColor={COLORS.surface}
+            focusedBackgroundColor={COLORS.surface}
+            focusedTextColor={COLORS.text}
+            onSubmit={submit}
+          />
+        </box>
+        <text fg={COLORS.muted} height={1} wrapMode="none" truncate>
+          {props.btw.busy ? "Enter waits" : "Enter ask follow-up"} · PgUp/PgDn scroll · Esc dismiss
+        </text>
+      </box>
+    </box>
+  );
+}
+
 function AuthOverlay(props: { auth: UiAuthPrompt; store: UiStore }) {
   let input: InputRenderable | undefined;
   let inputId = -1;
@@ -769,6 +890,7 @@ export function Root(props: RootProps) {
     state().picker !== undefined ||
     state().textInput !== undefined ||
     state().auth !== undefined ||
+    state().btw !== undefined ||
     state().agentPanel !== undefined;
 
   const unsubscribe = props.store.subscribe(setState);
@@ -785,6 +907,7 @@ export function Root(props: RootProps) {
       state().picker !== undefined ||
       state().textInput !== undefined ||
       state().auth !== undefined ||
+      state().btw !== undefined ||
       state().agentPanel !== undefined;
     if (overlayVisible) composer?.blur();
     else if (overlayWasVisible) queueMicrotask(() => composer?.focus());
@@ -858,6 +981,7 @@ export function Root(props: RootProps) {
       !props.store.snapshot.picker &&
       !props.store.snapshot.textInput &&
       !props.store.snapshot.auth &&
+      !props.store.snapshot.btw &&
       !props.store.snapshot.agentPanel
     )
       composer?.focus();
@@ -982,6 +1106,14 @@ export function Root(props: RootProps) {
       else if (key.name === "down" || (key.ctrl && key.name === "j")) props.store.movePicker(1);
       else if (key.name === "return") props.store.decidePicker(true);
       else if (key.name === "escape") props.store.decidePicker(false);
+      return;
+    }
+    if (state().btw) {
+      if (key.name === "escape" || (key.ctrl && key.name === "c")) {
+        key.preventDefault();
+        key.stopPropagation();
+        props.store.decideBtw({ type: "close" });
+      }
       return;
     }
     if (state().agentPanel) {
@@ -1125,6 +1257,8 @@ export function Root(props: RootProps) {
           {contextWindowLabel()} · cache R{state().cacheReadTokens.toLocaleString()} W
           {state().cacheWriteTokens.toLocaleString()} · cost ${state().cost.toFixed(4)} · effort{" "}
           {state().effort} · {state().status} · {state().mode}
+          <Show when={state().loopStatus}> · {state().loopStatus}</Show>
+          <Show when={state().goalStatus}> · {state().goalStatus}</Show>
           <Show when={extensionText("status")}> · {extensionText("status")}</Show>
         </text>
       </box>
@@ -1136,7 +1270,13 @@ export function Root(props: RootProps) {
       </Show>
 
       <Show
-        when={!state().auth && !state().textInput && !slashDismissed() && slashOptions().length > 0}
+        when={
+          !state().auth &&
+          !state().textInput &&
+          !state().btw &&
+          !slashDismissed() &&
+          slashOptions().length > 0
+        }
       >
         <SlashMenu options={visibleSlashOptions()} selectedIndex={slashSelectedIndex()} />
       </Show>
@@ -1167,6 +1307,7 @@ export function Root(props: RootProps) {
                 !props.store.snapshot.picker &&
                 !props.store.snapshot.textInput &&
                 !props.store.snapshot.auth &&
+                !props.store.snapshot.btw &&
                 !props.store.snapshot.agentPanel
               )
                 node.focus();
@@ -1212,10 +1353,17 @@ export function Root(props: RootProps) {
           <Show
             when={state().picker}
             fallback={
-              <Show when={state().agentPanel}>
-                {(panel: () => UiAgentPanelState) => (
-                  <AgentPanel agents={state().agents} panel={panel()} />
-                )}
+              <Show
+                when={state().btw}
+                fallback={
+                  <Show when={state().agentPanel}>
+                    {(panel: () => UiAgentPanelState) => (
+                      <AgentPanel agents={state().agents} panel={panel()} />
+                    )}
+                  </Show>
+                }
+              >
+                {(btw: () => UiBtwState) => <BtwOverlay btw={btw()} store={props.store} />}
               </Show>
             }
           >

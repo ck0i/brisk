@@ -13,26 +13,28 @@ The UI owns terminal I/O and shutdown; runtime coordinates services.
 
 ## Modules
 
-| Area       | Path                     | Role                                                   |
-| ---------- | ------------------------ | ------------------------------------------------------ |
-| CLI        | `src/cli/`, `main.ts`    | Args, auth/models/sessions, lazy dispatch              |
-| UI         | `src/app.tsx`, `src/ui/` | Solid/OpenTUI, composer, approvals, pickers            |
-| Runtime    | `src/runtime/`           | Slash commands, session/model switch, subagent bridge  |
-| Agent      | `src/core/`              | Messages/events, turn queue, streaming, tools, retries |
-| Providers  | `src/providers/`         | `pi-ai` adapter, auth, model cache, custom endpoints   |
-| Tools      | `src/tools/`             | Registry, Hashline workspace, permissions, bash        |
-| Sessions   | `src/sessions/`          | Append-only JSONL, index, recovery                     |
-| Context    | `src/context/`           | Estimation, Snapcompact (dynamic import)               |
-| Subagents  | `src/subagents/`         | Checkpoints, child sessions, patch overlay             |
-| Extensions | `src/extensions/`        | Discovery, contributions, reload                       |
-| Config     | `src/config/`            | JSONC layers, schema, paths                            |
-| Updates    | `src/update/`            | Validated GitHub releases and semantic version checks  |
+| Area       | Path                     | Role                                                                                   |
+| ---------- | ------------------------ | -------------------------------------------------------------------------------------- |
+| CLI        | `src/cli/`, `main.ts`    | Args, auth/models/sessions, lazy dispatch                                              |
+| UI         | `src/app.tsx`, `src/ui/` | Solid/OpenTUI, composer, approvals, pickers                                            |
+| Runtime    | `src/runtime/`           | Slash commands, first-class loop/goal/BTW modes, session/model switch, subagent bridge |
+| Agent      | `src/core/`              | Messages/events, turn queue, streaming, tools, retries                                 |
+| Providers  | `src/providers/`         | `pi-ai` adapter, auth, model cache, custom endpoints                                   |
+| Tools      | `src/tools/`             | Registry, Hashline workspace, permissions, bash                                        |
+| Sessions   | `src/sessions/`          | Append-only JSONL, index, recovery                                                     |
+| Context    | `src/context/`           | Estimation, Snapcompact (dynamic import)                                               |
+| Subagents  | `src/subagents/`         | Checkpoints, child sessions, patch overlay                                             |
+| Extensions | `src/extensions/`        | Discovery, contributions, reload                                                       |
+| Config     | `src/config/`            | JSONC layers, schema, paths                                                            |
+| Updates    | `src/update/`            | Validated GitHub releases and semantic version checks                                  |
 
 ## Agent loop
 
 `AgentLoop` streams normalized provider events. User input uses a FIFO queue; steering aborts the in-flight request. Each turn: derive context → system prompt + `AGENTS.md` + tools → provider response → tool execution (validated via `ToolRegistry`) → repeat until no tool calls. Failed tool batches roll back incomplete assistant/tool state. One forced compaction retry on context overflow.
 
 `AgentUiController` and `AgentSessionRecorder` subscribe independently; neither depends on OpenTUI.
+
+First-class modes are coordinated by the runtime rather than extension hooks: `/loop` resubmits a captured prompt after root-loop idle events; `/goal` persists mode state in session JSONL, injects a fresh objective reminder, and owns the built-in `goal` tool; `/btw` runs a non-persistent isolated provider loop with a read-only tool registry and its own TUI overlay.
 
 ## Providers
 

@@ -14,6 +14,8 @@ describe("parseCliArgs", () => {
           "anthropic/example",
           "--permission-mode",
           "safe",
+          "--goal-max-turns",
+          "12",
           "--fake-provider",
         ],
         { cwd: "/fallback" },
@@ -25,6 +27,7 @@ describe("parseCliArgs", () => {
       sessionId: "session-1",
       model: "anthropic/example",
       permissionMode: "safe",
+      goalMaxTurns: 12,
       fakeProvider: true,
     });
   });
@@ -68,6 +71,12 @@ describe("parseCliArgs", () => {
     );
     expect(() => parseCliArgs(["--model", "missing-provider"])).toThrow(
       "--model must use provider/model format",
+    );
+    expect(() => parseCliArgs(["--goal-max-turns", "-1"])).toThrow(
+      "--goal-max-turns requires a value",
+    );
+    expect(() => parseCliArgs(["--goal-max-turns", "many"])).toThrow(
+      "--goal-max-turns must be a non-negative safe integer",
     );
     expect(() => parseCliArgs(["--unknown"])).toThrow("Unknown option: --unknown");
     expect(() => parseCliArgs(["auth", "status", "anthropic"])).toThrow(

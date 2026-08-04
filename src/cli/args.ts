@@ -8,6 +8,7 @@ export type CliCommand =
       readonly sessionId?: string;
       readonly model?: string;
       readonly permissionMode?: PermissionMode;
+      readonly goalMaxTurns?: number;
       readonly fakeProvider: boolean;
     }
   | {
@@ -59,6 +60,7 @@ export function parseCliArgs(
   let sessionId: string | undefined;
   let model: string | undefined;
   let permissionMode: PermissionMode | undefined;
+  let goalMaxTurns: number | undefined;
   let fakeProvider = options.fakeProviderEnv ?? false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -84,6 +86,14 @@ export function parseCliArgs(
           throw new CliArgumentError("--permission-mode must be safe, write, or yolo");
         }
         permissionMode = candidate;
+        break;
+      }
+      case "--goal-max-turns": {
+        const candidate = requiredValue(argv, ++index, "--goal-max-turns");
+        if (!/^\d+$/.test(candidate) || !Number.isSafeInteger(Number(candidate))) {
+          throw new CliArgumentError("--goal-max-turns must be a non-negative safe integer");
+        }
+        goalMaxTurns = Number(candidate);
         break;
       }
       case "--fake-provider":
@@ -112,6 +122,7 @@ export function parseCliArgs(
     ...(sessionId === undefined ? {} : { sessionId }),
     ...(model === undefined ? {} : { model }),
     ...(permissionMode === undefined ? {} : { permissionMode }),
+    ...(goalMaxTurns === undefined ? {} : { goalMaxTurns }),
   };
 }
 

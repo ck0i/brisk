@@ -1,5 +1,5 @@
 import type { AgentLoop } from "../core/agent-loop.ts";
-import type { Message, Usage } from "../core/messages.ts";
+import type { JsonValue, Message, Usage } from "../core/messages.ts";
 import { AgentSessionRecorder } from "../sessions/agent-recorder.ts";
 import { SessionRepository } from "../sessions/repository.ts";
 import {
@@ -182,6 +182,18 @@ export class SessionRuntime {
       await this.recorder.flush();
     } else {
       await this.repository.append(this.sessionId, { type: "model_change", provider, model });
+    }
+    this.currentValue = await this.repository.open(this.sessionId);
+  }
+
+  async recordModeState(key: string, value: JsonValue): Promise<void> {
+    if (key.trim().length === 0) throw new TypeError("Mode-state key cannot be empty");
+    const input = { type: "mode_state" as const, key, value };
+    if (this.recorder) {
+      this.recorder.append(input);
+      await this.recorder.flush();
+    } else {
+      await this.repository.append(this.sessionId, input);
     }
     this.currentValue = await this.repository.open(this.sessionId);
   }

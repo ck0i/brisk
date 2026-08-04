@@ -164,6 +164,13 @@ export function parseSessionEntry(value: unknown): EntryParseResult {
       if (!child) return invalid("child_session.child");
       return { ok: true, entry: { ...base, type: "child_session", child } };
     }
+    case "mode_state":
+      if (!isNonemptyString(record.key)) return invalid("mode_state.key");
+      if (!isJsonValue(record.value)) return invalid("mode_state.value");
+      return {
+        ok: true,
+        entry: { ...base, type: "mode_state", key: record.key, value: record.value },
+      };
     case "cancellation":
       if (!isOptionalString(record.reason)) return invalid("cancellation.reason");
       return {
@@ -283,6 +290,10 @@ export function parseSessionEntryInput(value: unknown): SessionEntryInput | unde
       const child = parseChildReference(value.child);
       return child ? { type: "child_session", child } : undefined;
     }
+    case "mode_state":
+      return isNonemptyString(value.key) && isJsonValue(value.value)
+        ? { type: "mode_state", key: value.key, value: value.value }
+        : undefined;
     case "cancellation":
       return isOptionalString(value.reason)
         ? {
@@ -420,6 +431,7 @@ function parseUserMessage(value: unknown): UserMessage | undefined {
     return undefined;
   }
   if (!isOptionalFiniteNumber(value.timestamp)) return undefined;
+  if (value.internal !== undefined && value.internal !== "goal-control") return undefined;
   if (value.images !== undefined && !Array.isArray(value.images)) return undefined;
   const images: ImageContent[] = [];
   for (const imageValue of value.images ?? []) {
@@ -432,6 +444,7 @@ function parseUserMessage(value: unknown): UserMessage | undefined {
     content: value.content,
     ...(images.length === 0 ? {} : { images }),
     ...(value.timestamp === undefined ? {} : { timestamp: value.timestamp }),
+    ...(value.internal === undefined ? {} : { internal: value.internal }),
   };
 }
 

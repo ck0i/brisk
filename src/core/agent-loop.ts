@@ -47,6 +47,10 @@ export interface AgentLoopOptions {
   readonly maxOutputTokens?: number;
   /** Additional user-delegated system blocks, ordered from lower to higher precedence. */
   readonly additionalSystemPrompt?: readonly string[];
+  /** Brisk-owned instructions resolved immediately before each provider request. */
+  readonly dynamicSystemPrompt?: () => readonly string[];
+  /** Filter Brisk-owned control messages before context preparation. */
+  readonly contextFilter?: (messages: readonly Message[]) => readonly Message[];
   /** Identifies whether this loop is the root session or a delegated child. */
   readonly sessionRolePrompt?: string;
   /** Stop after appending the current tool results when the callback returns true. */
@@ -57,6 +61,7 @@ export type AgentEventListener = (event: AgentEvent) => void;
 
 interface PendingTurn {
   readonly text: string;
+  readonly internal?: UserMessage["internal"];
   readonly resolve: () => void;
   readonly reject: (error: NormalizedProviderError) => void;
 }
@@ -84,6 +89,9 @@ export class AgentLoop {
   private readonly contextLifecycle: AgentContextLifecycle | undefined;
   private readonly maxOutputTokens: number | undefined;
   private readonly additionalSystemPrompt: readonly string[];
+  private readonly dynamicSystemPrompt: (() => readonly string[]) | undefined;
+  private readonly contextFilter:
+    ((messages: readonly Message[]) => readonly Message[]) | undefined;
   private readonly sessionRolePrompt: string | undefined;
   private readonly stopWhen: (() => boolean) | undefined;
   private readonly history: Message[];
@@ -102,6 +110,8 @@ export class AgentLoop {
     this.contextLifecycle = options.contextLifecycle;
     this.maxOutputTokens = options.maxOutputTokens;
     this.additionalSystemPrompt = [...(options.additionalSystemPrompt ?? [])];
+    this.dynamicSystemPrompt = options.dynamicSystemPrompt;
+    this.contextFilter = options.contextFilter;
     this.sessionRolePrompt = options.sessionRolePrompt;
     this.stopWhen = options.stopWhen;
     this.maxRetries = options.maxRetries ?? 2;
@@ -151,6 +161,11 @@ export class AgentLoop {
     return this.enqueue(text);
   }
 
+  /** Queue a persisted Brisk control turn without exposing it as a user-authored UI message. */
+  submitInternal(text: string, internal: NonNullable<UserMessage["internal"]>): Promise<void> {
+    return this.enqueue(text, internal);
+  }
+
   steer(text: string): Promise<void> {
     const active = this.activeController;
     const completion = this.enqueue(text);
@@ -162,12 +177,13 @@ export class AgentLoop {
     this.activeController?.abort(new DOMException("Cancelled", "AbortError"));
   }
 
-  private enqueue(text: string): Promise<void> {
+  private enqueue(text: string, internal?: UserMessage["internal"]): Promise<void> {
     if (text.length === 0) return Promise.reject(new TypeError("Message cannot be empty"));
 
     const completion = new Promise<void>((resolve, reject: (error: unknown) => void) => {
       this.pending.push({
         text,
+        ...(internal === undefined ? {} : { internal }),
         resolve,
         reject: (error) => reject(error),
       });
@@ -185,7 +201,11 @@ export class AgentLoop {
         const pending = this.pending.shift();
         if (!pending) continue;
 
-        const userMessage: UserMessage = { role: "user", content: pending.text };
+        const userMessage: UserMessage = {
+          role: "user",
+          content: pending.text,
+          ...(pending.internal === undefined ? {} : { internal: pending.internal }),
+        };
         this.history.push(userMessage);
         this.publish({ type: "user_message", message: userMessage });
 
@@ -309,15 +329,16 @@ export class AgentLoop {
       | undefined;
     const calls = new Map<number, ToolCallBuilder>();
 
+    const sourceMessages = this.contextFilter?.(this.history) ?? this.history;
     const activeMessages = this.contextLifecycle
-      ? await this.contextLifecycle.prepare(this.history, this.model, signal)
-      : this.history;
+      ? await this.contextLifecycle.prepare(sourceMessages, this.model, signal)
+      : sourceMessages;
     throwIfAborted(signal);
     const toolSchemas = this.tools.schemas;
     const events = this.provider.stream({
       systemPrompt: buildSystemPrompt(
         toolSchemas,
-        this.additionalSystemPrompt,
+        [...this.additionalSystemPrompt, ...(this.dynamicSystemPrompt?.() ?? [])],
         this.sessionRolePrompt,
       ),
       messages: [...activeMessages],

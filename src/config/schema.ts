@@ -57,6 +57,7 @@ export const configSchema = z.object({
   permissionMode: z.enum(["safe", "write", "yolo"]).default("write"),
   maxSubagents: nonNegativeInteger.default(3),
   maxSubagentDepth: nonNegativeInteger.default(1),
+  goalMaxTurns: nonNegativeInteger.optional(),
   compaction: z
     .object({
       enabled: z.boolean().default(true),
@@ -90,6 +91,7 @@ export const configLayerSchema = z.object({
   permissionMode: z.enum(["safe", "write", "yolo"]).optional(),
   maxSubagents: nonNegativeInteger.optional(),
   maxSubagentDepth: nonNegativeInteger.optional(),
+  goalMaxTurns: nonNegativeInteger.optional(),
   compaction: z
     .object({
       enabled: z.boolean().optional(),

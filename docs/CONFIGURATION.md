@@ -30,6 +30,7 @@ User `AGENTS.md` lives beside global config; workspace `AGENTS.md` files overrid
   "permissionMode": "write",
   "maxSubagents": 3,
   "maxSubagentDepth": 1,
+  "goalMaxTurns": 20,
   "compaction": {
     "enabled": true,
     "thresholdPercent": 85,
@@ -65,6 +66,7 @@ User `AGENTS.md` lives beside global config; workspace `AGENTS.md` files overrid
 | `subtaskEffort`                     | Default child reasoning effort; same values as `effort`                                         |
 | `permissionMode`                    | `safe`, `write`, or prompt-free `yolo` (default `write`); hard-blocked operations remain denied |
 | `maxSubagents` / `maxSubagentDepth` | Concurrency and nesting; `0` disables children                                                  |
+| `goalMaxTurns`                      | Optional autonomous `/goal` continuation limit; omitted means unlimited                         |
 | `compaction.enabled`                | Automatic threshold compaction (default `true`)                                                 |
 | `compaction.thresholdPercent`       | 1–100 (default `85`)                                                                            |
 | `compaction.keepRecentTokens`       | Recent tail target (default `20000`)                                                            |
@@ -72,6 +74,8 @@ User `AGENTS.md` lives beside global config; workspace `AGENTS.md` files overrid
 | `ui.showThinking`                   | Expand thinking blocks by default                                                               |
 
 `/settings` edits global scalars interactively and reloads the runtime when closed.
+
+`BRISK_GOAL_MAX_TURNS` provides an environment fallback for `goalMaxTurns`; `PI_GOAL_MAX_TURNS` is also accepted for compatibility with the original extension. A JSONC value takes precedence over the environment, and `--goal-max-turns` takes precedence over both. `0` allows the kickoff turn and then pauses before the first automatic continuation.
 
 ## Custom OpenAI-compatible providers
 

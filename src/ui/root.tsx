@@ -60,14 +60,8 @@ export function paletteForTheme(theme: UiTheme) {
   return theme === "high-contrast" ? HIGH_CONTRAST_COLORS : COLORS;
 }
 
-const BRISK_WORK_FRAMES = [
-  "✦ B r i s k",
-  "B ✦ r i s k",
-  "B r ✦ i s k",
-  "B r i ✦ s k",
-  "B r i s ✦ k",
-  "B r i s k ✦",
-] as const;
+const BRISK_WORK_MARKS = ["✦", "✧", "·", "✧"] as const;
+const BRISK_WORK_INTERVAL_MS = 360;
 
 const COMPOSER_BINDINGS: KeyBinding[] = [
   { name: "return", action: "submit" },
@@ -1016,8 +1010,8 @@ export function Root(props: RootProps) {
       return;
     }
     const timer = setInterval(
-      () => setWorkingFrame((frame) => (frame + 1) % BRISK_WORK_FRAMES.length),
-      120,
+      () => setWorkingFrame((frame) => (frame + 1) % BRISK_WORK_MARKS.length),
+      BRISK_WORK_INTERVAL_MS,
     );
     onCleanup(() => clearInterval(timer));
   });
@@ -1419,8 +1413,8 @@ export function Root(props: RootProps) {
           width="100%"
         >
           <text fg={palette().accent} height={1} wrapMode="none" truncate>
-            <strong>{BRISK_WORK_FRAMES[workingFrame()]}</strong>
-            {`  Working${".".repeat((workingFrame() % 3) + 1)}`}
+            <strong>{`${BRISK_WORK_MARKS[workingFrame()]} B r i s k`}</strong>
+            {`  Working${".".repeat((workingFrame() % 3) + 1).padEnd(3)}`}
             <Show when={workingDetail()}> · {workingDetail()}</Show>
           </text>
         </box>

@@ -381,13 +381,17 @@ test("busy UI animates Brisk Working status and still submits slash commands", a
   );
   try {
     const first = await setup.renderOnce().then(() => setup.captureCharFrame());
-    expect(first).toContain("Working.");
-    expect(first).toContain("B r i s k");
-    await Bun.sleep(140);
+    expect(first).toContain("✦ B r i s k  Working.   · streaming");
+    await Bun.sleep(180);
+    await setup.flush();
+    expect(setup.captureCharFrame()).toContain("✦ B r i s k  Working.   · streaming");
+
+    await Bun.sleep(200);
     const animated = await setup.waitForFrame(
-      (frame) => frame.includes("Working..") && frame !== first,
+      (frame) => frame.includes("✧ B r i s k  Working..  · streaming") && frame !== first,
     );
-    expect(animated).toContain("streaming");
+    expect(animated.indexOf("B r i s k")).toBe(first.indexOf("B r i s k"));
+    expect(animated.indexOf("· streaming")).toBe(first.indexOf("· streaming"));
 
     await setup.mockInput.typeText("/effort");
     setup.mockInput.pressEnter();

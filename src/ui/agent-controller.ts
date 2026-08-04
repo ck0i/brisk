@@ -3,6 +3,7 @@ import { EventBatcher } from "../core/event-batcher.ts";
 import type { AgentEvent } from "../core/events.ts";
 import type { UiMessage, UiSnapshot, UiToolCard } from "./state.ts";
 import { UiStore } from "./state.ts";
+import { extractToolDiff, summarizeToolCall, summarizeToolResult } from "./tool-presentation.ts";
 
 export class AgentUiController {
   private readonly unsubscribe: () => void;
@@ -42,6 +43,8 @@ export class AgentUiController {
     let snapshot = this.store.snapshot;
     let messages = [...snapshot.messages];
     let contextTokens = snapshot.contextTokens;
+    let cacheReadTokens = snapshot.cacheReadTokens;
+    let cacheWriteTokens = snapshot.cacheWriteTokens;
     let cost = snapshot.cost;
     let busy = snapshot.busy;
     let status = snapshot.status;
@@ -119,6 +122,8 @@ export class AgentUiController {
           break;
         case "usage":
           contextTokens += event.usage.inputTokens + event.usage.outputTokens;
+          cacheReadTokens += event.usage.cacheReadTokens ?? 0;
+          cacheWriteTokens += event.usage.cacheWriteTokens ?? 0;
           cost += event.usage.cost ?? 0;
           break;
         case "response_end": {
@@ -130,9 +135,15 @@ export class AgentUiController {
         case "assistant_message": {
           const active = activeMessage();
           if (!active) break;
+          const tools = active.tools?.map((card) => {
+            const call = event.message.toolCalls.find((candidate) => candidate.id === card.id);
+            const summary = call === undefined ? undefined : summarizeToolCall(call);
+            return summary === undefined ? card : { ...card, summary };
+          });
           replaceMessage(active.id, {
             content: event.message.content,
             ...(event.message.thinking === undefined ? {} : { thinking: event.message.thinking }),
+            ...(tools === undefined ? {} : { tools }),
             streaming: false,
           });
           break;
@@ -161,7 +172,25 @@ export class AgentUiController {
               ...card,
               status: "running",
               output,
-              summary: summarize(output),
+              summary: card.summary ?? summarizeToolResult(card.name, output),
+            }),
+          };
+          break;
+        }
+        case "tool_execution_preview": {
+          const ownerIndex = findToolOwner(messages, event.id);
+          const owner = messages[ownerIndex];
+          const card = owner?.tools?.find((candidate) => candidate.id === event.id);
+          if (!owner || !card) break;
+          messages[ownerIndex] = {
+            ...owner,
+            tools: upsertCard(owner.tools, {
+              ...card,
+              status: "running",
+              summary: event.preview.summary,
+              ...(event.preview.diff === undefined
+                ? {}
+                : { diff: event.preview.diff, expanded: true }),
             }),
           };
           break;
@@ -186,13 +215,13 @@ export class AgentUiController {
           if (!owner) break;
           const card = owner.tools?.find((candidate) => candidate.id === event.message.toolCallId);
           if (!card) break;
-          const diff = extractUnifiedDiff(event.message.content);
+          const diff = card.diff ?? extractToolDiff(event.message.name, event.message.content);
           const updated: UiToolCard = {
             ...card,
             status: event.message.isError ? "failed" : "completed",
-            summary: summarize(event.message.content),
+            summary: card.summary ?? summarizeToolResult(event.message.name, event.message.content),
             output: event.message.content,
-            ...(diff === undefined ? {} : { diff }),
+            ...(diff === undefined ? {} : { diff, expanded: true }),
           };
           const tools = upsertCard(owner.tools, updated);
           messages[ownerIndex] = { ...owner, tools };
@@ -226,7 +255,16 @@ export class AgentUiController {
       }
     }
 
-    snapshot = { ...snapshot, messages, contextTokens, cost, busy, status } satisfies UiSnapshot;
+    snapshot = {
+      ...snapshot,
+      messages,
+      contextTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
+      cost,
+      busy,
+      status,
+    } satisfies UiSnapshot;
     this.store.update(snapshot);
   }
 }
@@ -244,16 +282,4 @@ function findToolOwner(messages: readonly UiMessage[], callId: string): number {
     if (messages[index]?.tools?.some((tool) => tool.id === callId)) return index;
   }
   return -1;
-}
-
-function summarize(content: string): string {
-  const firstLine = content.split("\n", 1)[0] ?? "";
-  const normalized = firstLine.replaceAll(/\s+/g, " ").trim();
-  return normalized.length <= 100 ? normalized : `${normalized.slice(0, 97)}...`;
-}
-
-function extractUnifiedDiff(content: string): string | undefined {
-  const direct = content.startsWith("--- ") ? 0 : content.indexOf("\n--- ") + 1;
-  if (direct < 0 || !content.slice(direct).includes("\n+++ ")) return undefined;
-  return content.slice(direct);
 }

@@ -2,19 +2,17 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { CliCommand } from "../cli/args.ts";
-import { TerminalAuthPrompter } from "../cli/auth-prompter.ts";
 import { ConfigManager } from "../config/manager.ts";
 import { ensureConfigDirectories, resolveConfigPaths, type ConfigPaths } from "../config/paths.ts";
-import type { ConfigOverrides } from "../config/schema.ts";
+import type { BriskConfig, ConfigOverrides } from "../config/schema.ts";
+import { writeConfigValue } from "../config/write.ts";
 import { ContextManager, type ContextInspection, type ContextModel } from "../context/index.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
-import type { Message, ToolResultMessage } from "../core/messages.ts";
+import { discoverAgentsInstructions } from "../core/agents-instructions.ts";
+import type { JsonValue, Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
 import { redactedErrorMessage } from "../providers/secret-redaction.ts";
-import {
-  BUILT_IN_BRISK_OAUTH_PROVIDERS,
-  type ProviderAuthStatus,
-} from "../providers/auth-service.ts";
+import { BUILT_IN_BRISK_OAUTH_PROVIDERS } from "../providers/auth-service.ts";
 import {
   ProviderService,
   splitModelSpecifier,
@@ -29,8 +27,16 @@ import { SessionRuntime } from "./session-runtime.ts";
 import { RuntimeSubagents } from "./subagent-runtime.ts";
 import { AgentUiController } from "../ui/agent-controller.ts";
 import { UiApprovalController } from "../ui/approval-controller.ts";
+import { UiAuthController } from "../ui/auth-controller.ts";
 import { UiPickerController } from "../ui/picker-controller.ts";
+import { BUILT_IN_SLASH_COMMANDS } from "../ui/slash-commands.ts";
 import { UiStore, type UiMessage, type UiToolCard } from "../ui/state.ts";
+import { UiTextInputController } from "../ui/text-input-controller.ts";
+import {
+  extractToolDiff,
+  summarizeToolCall,
+  summarizeToolResult,
+} from "../ui/tool-presentation.ts";
 
 export type TuiCommand = Extract<CliCommand, { readonly name: "tui" }>;
 
@@ -49,12 +55,15 @@ export class InteractiveRuntime {
   private agentLoop: AgentLoop | undefined;
   private contextManager: ContextManager | undefined;
   private compactionController: AbortController | undefined;
+  private agentInstructionPrompts: readonly string[] = [];
   private tools = new ToolRegistry();
   private codingServices: CodingToolServices | undefined;
   private subagents: RuntimeSubagents | undefined;
   private extensions: RuntimeExtensions | undefined;
   private readonly approvalController: UiApprovalController;
+  private readonly authController: UiAuthController;
   private readonly pickerController: UiPickerController;
+  private readonly textInputController: UiTextInputController;
   private closed = false;
 
   private constructor(
@@ -66,7 +75,9 @@ export class InteractiveRuntime {
     this.paths = paths;
     this.configManager = configManager;
     this.approvalController = new UiApprovalController(store);
+    this.authController = new UiAuthController(store);
     this.pickerController = new UiPickerController(store);
+    this.textInputController = new UiTextInputController(store);
   }
 
   static async initialize(
@@ -96,6 +107,7 @@ export class InteractiveRuntime {
     runtime.showConfigWarnings();
 
     try {
+      await runtime.initializeAgentInstructions();
       await runtime.initializeSession();
       await runtime.initializeCodingTools();
       if (options.command.fakeProvider) await runtime.initializeFakeProvider();
@@ -130,6 +142,7 @@ export class InteractiveRuntime {
 
   abort(): void {
     this.compactionController?.abort(new DOMException("Cancelled", "AbortError"));
+    this.authController.cancel();
     this.controller?.cancel();
     if (!this.controller) this.store.update({ busy: false, status: "cancelled" });
   }
@@ -182,10 +195,19 @@ export class InteractiveRuntime {
     await this.extensions?.emitLifecycle("shutdown");
     await this.extensions?.dispose();
     this.approvalController.dispose();
+    this.authController.dispose();
     this.pickerController.dispose();
+    this.textInputController.dispose();
     await this.sessionRuntime?.close();
     this.providerService?.close();
     await cleanupToolProcesses();
+  }
+
+  private async initializeAgentInstructions(): Promise<void> {
+    this.agentInstructionPrompts = await discoverAgentsInstructions({
+      workspace: this.options.workspace,
+      userAgentsPath: this.paths.userAgentsPath,
+    });
   }
 
   private async initializeSession(): Promise<void> {
@@ -385,13 +407,14 @@ export class InteractiveRuntime {
       initialMessages: session.messages,
       initialUsage: session.usage,
       contextLifecycle: contextManager,
+      additionalSystemPrompt: this.agentInstructionPrompts,
     });
     this.installAgentLoop(loop);
     if (session.selectedModelSpecifier !== "fake/brisk-demo") {
       await session.recordModelChange("fake", "brisk-demo");
     }
     this.store.update({ providerModel: "fake/brisk-demo", status: "ready" });
-    await this.initializeSubagents("fake/brisk-demo");
+    await this.initializeSubagents(this.resolveDefaultSubtaskModel("fake/brisk-demo"));
   }
 
   private async activateSelection(selection: ModelSelection): Promise<void> {
@@ -415,6 +438,7 @@ export class InteractiveRuntime {
           initialMessages: session.messages,
           initialUsage: session.usage,
           contextLifecycle: contextManager,
+          additionalSystemPrompt: this.agentInstructionPrompts,
         }),
       );
     } else {
@@ -428,8 +452,22 @@ export class InteractiveRuntime {
       contextWindow: selection.record.contextWindow ?? undefined,
       status: "ready",
     });
-    await this.initializeSubagents(selectedName);
-    this.subagents?.setDefaultModel(selectedName);
+    const defaultSubtaskModel = this.resolveDefaultSubtaskModel(selectedName);
+    await this.initializeSubagents(defaultSubtaskModel);
+    this.subagents?.setDefaultModel(defaultSubtaskModel);
+  }
+
+  private resolveDefaultSubtaskModel(parentModel: string): string {
+    const configured = this.configManager.current.defaultSubtaskModel;
+    if (!configured || this.options.command.fakeProvider) return parentModel;
+    const candidate = this.providerService?.models.find(
+      (model) => `${model.provider}/${model.id}` === configured,
+    );
+    if (candidate?.available && candidate.supportsTools) return configured;
+    this.addSystem(
+      `Configured default subtask model \`${configured}\` is unavailable or lacks tool support; using parent model \`${parentModel}\`.`,
+    );
+    return parentModel;
   }
 
   private async initializeSubagents(defaultModel: string): Promise<void> {
@@ -459,6 +497,7 @@ export class InteractiveRuntime {
       permissions: codingServices.permissions,
       ...(this.providerService === undefined ? {} : { providerService: this.providerService }),
       fakeProvider: this.options.command.fakeProvider,
+      agentInstructionPrompts: this.agentInstructionPrompts,
       parentLoop,
       contextManager,
       session,
@@ -484,6 +523,8 @@ export class InteractiveRuntime {
     this.store.update({
       messages: uiMessagesFromHistory(session.messages),
       contextTokens: usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens ?? 0,
+      cacheWriteTokens: usage.cacheWriteTokens ?? 0,
       cost: usage.cost ?? 0,
     });
     if (session.interrupted) {
@@ -610,6 +651,7 @@ export class InteractiveRuntime {
     await this.configManager.reload();
     this.applyConfigToUi();
     this.showConfigWarnings();
+    await this.initializeAgentInstructions();
     await this.teardownAgent();
     this.providerService?.close();
     this.providerService = undefined;
@@ -669,19 +711,26 @@ export class InteractiveRuntime {
         await this.openSessionPicker();
         return true;
       case "/login":
-        await this.login(argument, tui);
+        await this.login(argument);
         return true;
       case "/logout":
-        await this.logout(argument, tui);
+        await this.logout(argument);
         return true;
       case "/reload":
         await this.reloadConfigurationAndExtensions();
         return true;
-      case "/cost":
-        this.addSystem(`Current recorded cost: **$${this.store.snapshot.cost.toFixed(4)}**`);
+      case "/cost": {
+        const snapshot = this.store.snapshot;
+        this.addSystem(
+          [
+            `Current recorded cost: **$${snapshot.cost.toFixed(4)}**`,
+            `Prompt cache: **${snapshot.cacheReadTokens.toLocaleString()} read** · **${snapshot.cacheWriteTokens.toLocaleString()} written**`,
+          ].join("\n\n"),
+        );
         return true;
+      }
       case "/settings":
-        this.addSystem(`Global configuration: \`${this.paths.globalConfigPath}\``);
+        await this.openSettings();
         return true;
       default: {
         const result = await this.extensions?.invokeSlashCommand(name, argument);
@@ -694,6 +743,223 @@ export class InteractiveRuntime {
         return true;
       }
     }
+  }
+
+  private async openSettings(): Promise<void> {
+    if (this.store.snapshot.busy) {
+      this.addSystem("Abort active work before changing settings.");
+      return;
+    }
+
+    let changed = false;
+    let selectedId = "defaultModel";
+    while (true) {
+      const config = this.configManager.current;
+      const choice = await this.pickerController.choose({
+        title: "Settings · saved to global config",
+        selectedId,
+        options: settingsOptions(config),
+      });
+      if (choice === undefined || choice === "done") break;
+      selectedId = choice;
+      changed = (await this.changeSetting(choice)) || changed;
+    }
+
+    if (changed) await this.reloadConfigurationAndExtensions();
+  }
+
+  private async changeSetting(setting: string): Promise<boolean> {
+    const config = this.configManager.current;
+    switch (setting) {
+      case "defaultModel":
+        return await this.changeModelSetting("defaultModel", config.defaultModel, false);
+      case "defaultSubtaskModel":
+        return await this.changeModelSetting(
+          "defaultSubtaskModel",
+          config.defaultSubtaskModel,
+          true,
+        );
+      case "permissionMode":
+        return await this.changeChoiceSetting(
+          ["permissionMode"],
+          "Permission mode",
+          config.permissionMode,
+          [
+            { id: "safe", label: "Safe", description: "prompt before writes and shell commands" },
+            { id: "write", label: "Write", description: "allow edits; prompt for shell commands" },
+            { id: "yolo", label: "Yolo", description: "allow ordinary tool operations" },
+          ],
+        );
+      case "maxSubagents":
+        return await this.changeIntegerSetting(
+          ["maxSubagents"],
+          "Maximum concurrent subagents",
+          config.maxSubagents,
+          0,
+        );
+      case "maxSubagentDepth":
+        return await this.changeIntegerSetting(
+          ["maxSubagentDepth"],
+          "Maximum subagent depth",
+          config.maxSubagentDepth,
+          0,
+        );
+      case "compaction.enabled":
+        return await this.changeBooleanSetting(
+          ["compaction", "enabled"],
+          "Automatic compaction",
+          config.compaction.enabled,
+        );
+      case "compaction.thresholdPercent":
+        return await this.changeIntegerSetting(
+          ["compaction", "thresholdPercent"],
+          "Compaction threshold percent",
+          config.compaction.thresholdPercent,
+          1,
+          100,
+        );
+      case "compaction.keepRecentTokens":
+        return await this.changeIntegerSetting(
+          ["compaction", "keepRecentTokens"],
+          "Recent tokens retained after compaction",
+          config.compaction.keepRecentTokens,
+          1,
+        );
+      case "ui.theme":
+        return await this.changeChoiceSetting(["ui", "theme"], "Theme", config.ui.theme, [
+          { id: "default", label: "Default" },
+          { id: "high-contrast", label: "High contrast" },
+        ]);
+      case "ui.showThinking":
+        return await this.changeBooleanSetting(
+          ["ui", "showThinking"],
+          "Show thinking by default",
+          config.ui.showThinking,
+        );
+      case "providers":
+        this.addSystem(
+          `Custom provider definitions contain URLs, environment-variable names, and model schemas. Edit them in \`${this.paths.globalConfigPath}\`, then use \`/reload\`.`,
+        );
+        return false;
+      default:
+        return false;
+    }
+  }
+
+  private async changeModelSetting(
+    field: "defaultModel" | "defaultSubtaskModel",
+    current: string | undefined,
+    requireTools: boolean,
+  ): Promise<boolean> {
+    const models = (this.providerService?.models ?? []).filter(
+      (model) => model.available && (!requireTools || model.supportsTools),
+    );
+    const inheritDescription =
+      field === "defaultSubtaskModel"
+        ? "use the active parent model"
+        : "use the session or provider fallback";
+    const selected = await this.pickerController.choose({
+      title: field === "defaultSubtaskModel" ? "Default subtask model" : "Default model",
+      selectedId: current ?? "inherit",
+      options: [
+        { id: "inherit", label: "Automatic / inherited", description: inheritDescription },
+        ...models.map((model) => ({
+          id: `${model.provider}/${model.id}`,
+          label: `${model.provider}/${model.id}`,
+          description:
+            model.contextWindow === null
+              ? model.api
+              : `${model.contextWindow.toLocaleString()} context · ${model.api}`,
+        })),
+      ],
+    });
+    if (selected === undefined) return false;
+    await this.saveGlobalSetting([field], selected === "inherit" ? undefined : selected);
+    return true;
+  }
+
+  private async changeChoiceSetting(
+    path: readonly string[],
+    title: string,
+    current: string,
+    options: readonly {
+      readonly id: string;
+      readonly label: string;
+      readonly description?: string;
+    }[],
+  ): Promise<boolean> {
+    const selected = await this.pickerController.choose({
+      title,
+      selectedId: current,
+      options: [
+        { id: "inherit", label: "Reset global override", description: "use project or default" },
+        ...options,
+      ],
+    });
+    if (selected === undefined) return false;
+    await this.saveGlobalSetting(path, selected === "inherit" ? undefined : selected);
+    return true;
+  }
+
+  private async changeBooleanSetting(
+    path: readonly string[],
+    title: string,
+    current: boolean,
+  ): Promise<boolean> {
+    const selected = await this.pickerController.choose({
+      title,
+      selectedId: String(current),
+      options: [
+        { id: "inherit", label: "Reset global override", description: "use project or default" },
+        { id: "true", label: "Enabled" },
+        { id: "false", label: "Disabled" },
+      ],
+    });
+    if (selected === undefined) return false;
+    await this.saveGlobalSetting(path, selected === "inherit" ? undefined : selected === "true");
+    return true;
+  }
+
+  private async changeIntegerSetting(
+    path: readonly string[],
+    title: string,
+    current: number,
+    minimum: number,
+    maximum?: number,
+  ): Promise<boolean> {
+    const bounds = maximum === undefined ? `at least ${minimum}` : `${minimum} through ${maximum}`;
+    const answer = await this.textInputController.prompt({
+      title,
+      message: `Enter an integer ${bounds}, or "default" to reset the global override.`,
+      value: String(current),
+      validate(value) {
+        if (value.toLowerCase() === "default") return undefined;
+        if (!/^\d+$/.test(value)) return "Enter a whole number or default.";
+        const parsed = Number(value);
+        if (!Number.isSafeInteger(parsed) || parsed < minimum) {
+          return `Value must be an integer ${bounds}.`;
+        }
+        if (maximum !== undefined && parsed > maximum) {
+          return `Value must be an integer ${bounds}.`;
+        }
+        return undefined;
+      },
+    });
+    if (answer === undefined) return false;
+    await this.saveGlobalSetting(
+      path,
+      answer.toLowerCase() === "default" ? undefined : Number(answer),
+    );
+    return true;
+  }
+
+  private async saveGlobalSetting(
+    path: readonly string[],
+    value: JsonValue | undefined,
+  ): Promise<void> {
+    await writeConfigValue(this.paths.globalConfigPath, path, value);
+    await this.configManager.reload();
+    this.applyConfigToUi();
   }
 
   private async compactContext(): Promise<void> {
@@ -777,42 +1043,77 @@ export class InteractiveRuntime {
     });
   }
 
-  private async login(providerArgument: string, tui: TuiRuntime): Promise<void> {
+  private async login(providerArgument: string): Promise<void> {
     const providers = this.requireProviderService("login");
-    const provider = await tui.runSuspended(async () => {
-      const prompter = new TerminalAuthPrompter();
-      try {
-        const selected =
-          providerArgument ||
-          (await chooseOAuthProvider(providers.auth.listProviderStatus(), prompter));
-        await providers.auth.login(selected, prompter);
-        return selected;
-      } finally {
-        prompter.close();
+    const provider = providerArgument || (await this.chooseOAuthProvider(providers));
+    if (!provider) return;
+
+    const controller = new AbortController();
+    const prompter = this.authController.begin(provider, controller);
+    try {
+      await providers.auth.login(provider, prompter, controller.signal);
+    } catch (error) {
+      if (controller.signal.aborted) {
+        this.addSystem("Login cancelled.");
+        return;
       }
-    });
+      throw error;
+    } finally {
+      this.authController.close();
+    }
+
     await providers.refreshModels();
     const selection = providers.selected ?? (await providers.selectInitial());
     if (selection) await this.activateSelection(selection);
     this.addSystem(`Logged in to \`${provider}\`.`);
   }
 
-  private async logout(providerArgument: string, tui: TuiRuntime): Promise<void> {
+  private async logout(providerArgument: string): Promise<void> {
     const providers = this.requireProviderService("logout");
-    const provider = await tui.runSuspended(async () => {
-      const prompter = new TerminalAuthPrompter();
-      try {
-        const selected =
-          providerArgument ||
-          (await chooseLogoutProvider(providers.auth.listProviderStatus(), prompter));
-        await providers.auth.logout(selected);
-        return selected;
-      } finally {
-        prompter.close();
-      }
-    });
+    const provider = providerArgument || (await this.chooseLogoutProvider(providers));
+    if (!provider) return;
+    await providers.auth.logout(provider);
     await providers.refreshModels();
     this.addSystem(`Logged out of \`${provider}\` locally.`);
+  }
+
+  private async chooseOAuthProvider(providers: ProviderService): Promise<string | undefined> {
+    const statuses = providers.auth.listProviderStatus();
+    const byId = new Map(statuses.map((status) => [status.provider, status]));
+    const candidates = BUILT_IN_BRISK_OAUTH_PROVIDERS.filter(
+      (provider) => byId.get(provider)?.oauthAvailable,
+    );
+    if (candidates.length === 0) {
+      this.addSystem("No supported OAuth provider is available.");
+      return undefined;
+    }
+    return await this.pickerController.choose({
+      title: "Provider to login",
+      options: candidates.map((provider) => {
+        const name = byId.get(provider)?.name;
+        return {
+          id: provider,
+          label: provider,
+          ...(name === undefined ? {} : { description: name }),
+        };
+      }),
+    });
+  }
+
+  private async chooseLogoutProvider(providers: ProviderService): Promise<string | undefined> {
+    const candidates = providers.auth
+      .listProviderStatus()
+      .filter((status) => status.configured)
+      .map((status) => ({
+        id: status.provider,
+        label: status.provider,
+        ...(status.name === undefined ? {} : { description: status.name }),
+      }));
+    if (candidates.length === 0) {
+      this.addSystem("No configured provider is available to log out.");
+      return undefined;
+    }
+    return await this.pickerController.choose({ title: "Provider to logout", options: candidates });
   }
 
   private requireProviderService(action: string): ProviderService {
@@ -847,6 +1148,63 @@ export class InteractiveRuntime {
   }
 }
 
+function settingsOptions(config: BriskConfig): readonly {
+  readonly id: string;
+  readonly label: string;
+  readonly description?: string;
+}[] {
+  return [
+    {
+      id: "defaultModel",
+      label: "Default model",
+      description: config.defaultModel ?? "automatic",
+    },
+    {
+      id: "defaultSubtaskModel",
+      label: "Default subtask model",
+      description: config.defaultSubtaskModel ?? "inherit active parent model",
+    },
+    { id: "permissionMode", label: "Permission mode", description: config.permissionMode },
+    {
+      id: "maxSubagents",
+      label: "Concurrent subagents",
+      description: String(config.maxSubagents),
+    },
+    {
+      id: "maxSubagentDepth",
+      label: "Subagent depth",
+      description: String(config.maxSubagentDepth),
+    },
+    {
+      id: "compaction.enabled",
+      label: "Automatic compaction",
+      description: config.compaction.enabled ? "enabled" : "disabled",
+    },
+    {
+      id: "compaction.thresholdPercent",
+      label: "Compaction threshold",
+      description: `${config.compaction.thresholdPercent}%`,
+    },
+    {
+      id: "compaction.keepRecentTokens",
+      label: "Recent tokens after compaction",
+      description: config.compaction.keepRecentTokens.toLocaleString(),
+    },
+    { id: "ui.theme", label: "Theme", description: config.ui.theme },
+    {
+      id: "ui.showThinking",
+      label: "Show thinking",
+      description: config.ui.showThinking ? "enabled" : "disabled",
+    },
+    {
+      id: "providers",
+      label: "Custom providers",
+      description: `${Object.keys(config.providers).length} configured · file editor required`,
+    },
+    { id: "done", label: "Done", description: "save and apply changes" },
+  ];
+}
+
 function uiMessagesFromHistory(messages: readonly Message[]): UiMessage[] {
   const visible: UiMessage[] = [];
   const toolOwners = new Map<
@@ -860,11 +1218,15 @@ function uiMessagesFromHistory(messages: readonly Message[]): UiMessage[] {
       continue;
     }
     if (message.role === "assistant") {
-      const tools: UiToolCard[] = message.toolCalls.map((call) => ({
-        id: call.id,
-        name: call.name,
-        status: "pending",
-      }));
+      const tools: UiToolCard[] = message.toolCalls.map((call) => {
+        const summary = summarizeToolCall(call);
+        return {
+          id: call.id,
+          name: call.name,
+          status: "pending",
+          ...(summary === undefined ? {} : { summary }),
+        };
+      });
       const messageIndex = visible.length;
       visible.push({
         id: `history-assistant-${index}`,
@@ -892,55 +1254,15 @@ function applyHistoricalToolResult(
   const card = message?.tools?.[owner.cardIndex];
   if (!message || !card) return;
   const tools = [...(message.tools ?? [])];
+  const diff = extractToolDiff(result.name, result.content);
   tools[owner.cardIndex] = {
     ...card,
     status: result.isError ? "failed" : "completed",
     output: result.content,
-    summary: summarizeHistoryTool(result.content),
+    summary: card.summary ?? summarizeToolResult(result.name, result.content),
+    ...(diff === undefined ? {} : { diff, expanded: true }),
   };
   messages[owner.messageIndex] = { ...message, tools };
-}
-
-function summarizeHistoryTool(content: string): string {
-  const firstLine = content.split("\n", 1)[0]?.replaceAll(/\s+/g, " ").trim() ?? "";
-  return firstLine.length <= 100 ? firstLine : `${firstLine.slice(0, 97)}...`;
-}
-
-async function chooseOAuthProvider(
-  statuses: readonly ProviderAuthStatus[],
-  prompter: TerminalAuthPrompter,
-): Promise<string> {
-  const available = new Set(
-    statuses.filter((status) => status.oauthAvailable).map((status) => status.provider),
-  );
-  const candidates = BUILT_IN_BRISK_OAUTH_PROVIDERS.filter((provider) => available.has(provider));
-  return await chooseFrom(candidates, "Provider to login", prompter);
-}
-
-async function chooseLogoutProvider(
-  statuses: readonly ProviderAuthStatus[],
-  prompter: TerminalAuthPrompter,
-): Promise<string> {
-  return await chooseFrom(
-    statuses.filter((status) => status.configured).map((status) => status.provider),
-    "Provider to logout",
-    prompter,
-  );
-}
-
-async function chooseFrom(
-  candidates: readonly string[],
-  message: string,
-  prompter: TerminalAuthPrompter,
-): Promise<string> {
-  const fallback = candidates[0];
-  if (!fallback) throw new Error("No matching configured provider is available");
-  prompter.progress(`Available providers: ${candidates.join(", ")}`);
-  const answer = await prompter.ask(message, { placeholder: fallback, allowEmpty: true });
-  const selected = answer || fallback;
-  if (!candidates.includes(selected))
-    throw new Error(`Unsupported provider selection: ${selected}`);
-  return selected;
 }
 
 function modelName(selection: ModelSelection): string {
@@ -974,5 +1296,6 @@ function formatContextInspection(inspection: ContextInspection): string {
 }
 
 function helpText(): string {
-  return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: abort, then exit when idle\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n\`/help\`, \`/model [provider/model]\`, \`/login [provider]\`, \`/logout [provider]\`, \`/new\`, \`/sessions\`, \`/resume\`, \`/compact\`, \`/context\`, \`/agents\`, \`/cost\`, \`/settings\`, \`/reload\`, \`/clear\`, \`/quit\``;
+  const commands = BUILT_IN_SLASH_COMMANDS.map((command) => `\`${command.name}\``).join(", ");
+  return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: abort, then exit when idle\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n${commands}`;
 }

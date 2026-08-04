@@ -86,6 +86,29 @@ export interface UiPickerPrompt {
   selectedIndex: number;
 }
 
+export interface UiTextInputPrompt {
+  id: string;
+  title: string;
+  message: string;
+  value: string;
+  placeholder?: string;
+  error?: string;
+}
+
+export interface UiAuthPrompt {
+  id: string;
+  provider: string;
+  message?: string;
+  placeholder?: string;
+  instructions?: string;
+  browserStatus?: string;
+  progress?: string;
+  input: string;
+  inputId: number;
+  allowEmpty: boolean;
+  error?: string;
+}
+
 export interface UiSnapshot {
   workspace: string;
   providerModel: string;
@@ -95,6 +118,8 @@ export interface UiSnapshot {
   showThinking: boolean;
   contextTokens: number;
   contextWindow: number | undefined;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   cost: number;
   busy: boolean;
   messages: readonly UiMessage[];
@@ -104,6 +129,8 @@ export interface UiSnapshot {
   agentPanel?: UiAgentPanelState;
   approval?: UiApprovalPrompt;
   picker?: UiPickerPrompt;
+  textInput?: UiTextInputPrompt;
+  auth?: UiAuthPrompt;
   notice?: string;
   noticeExpanded?: boolean;
 }
@@ -111,6 +138,8 @@ export interface UiSnapshot {
 export type UiListener = (snapshot: UiSnapshot) => void;
 export type UiApprovalDecisionHandler = (id: string, decision: UiApprovalDecision) => void;
 export type UiPickerDecisionHandler = (id: string, optionId: string | undefined) => void;
+export type UiTextInputDecisionHandler = (id: string, value: string | undefined) => void;
+export type UiAuthDecisionHandler = (id: string, value: string | undefined) => void;
 export type UiAgentDecision = "open" | "cancel";
 export type UiAgentDecisionHandler = (id: string, decision: UiAgentDecision) => void;
 
@@ -119,6 +148,8 @@ export class UiStore {
   private readonly listeners = new Set<UiListener>();
   private approvalDecisionHandler: UiApprovalDecisionHandler | undefined;
   private pickerDecisionHandler: UiPickerDecisionHandler | undefined;
+  private textInputDecisionHandler: UiTextInputDecisionHandler | undefined;
+  private authDecisionHandler: UiAuthDecisionHandler | undefined;
   private agentDecisionHandler: UiAgentDecisionHandler | undefined;
 
   constructor(workspace: string, mode: UiSnapshot["mode"] = "write") {
@@ -131,6 +162,8 @@ export class UiStore {
       showThinking: false,
       contextTokens: 0,
       contextWindow: undefined,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
       cost: 0,
       busy: false,
       messages: [],
@@ -421,6 +454,60 @@ export class UiStore {
     if (!this.current.picker || (id !== undefined && this.current.picker.id !== id)) return;
     const { picker: _picker, ...snapshot } = this.current;
     this.publish(snapshot);
+  }
+
+  showTextInput(textInput: UiTextInputPrompt): void {
+    this.publish({ ...this.current, textInput });
+  }
+
+  clearTextInput(id?: string): void {
+    if (!this.current.textInput || (id !== undefined && this.current.textInput.id !== id)) return;
+    const { textInput: _textInput, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
+  decideTextInput(value: string | undefined): boolean {
+    const textInput = this.current.textInput;
+    const handler = this.textInputDecisionHandler;
+    if (!textInput || !handler) return false;
+    handler(textInput.id, value);
+    return true;
+  }
+
+  setTextInputDecisionHandler(handler: UiTextInputDecisionHandler): () => void {
+    if (this.textInputDecisionHandler) {
+      throw new Error("A text input decision handler is already registered");
+    }
+    this.textInputDecisionHandler = handler;
+    return () => {
+      if (this.textInputDecisionHandler === handler) this.textInputDecisionHandler = undefined;
+    };
+  }
+
+  showAuth(auth: UiAuthPrompt): void {
+    this.publish({ ...this.current, auth });
+  }
+
+  clearAuth(id?: string): void {
+    if (!this.current.auth || (id !== undefined && this.current.auth.id !== id)) return;
+    const { auth: _auth, ...snapshot } = this.current;
+    this.publish(snapshot);
+  }
+
+  decideAuth(value: string | undefined): boolean {
+    const auth = this.current.auth;
+    const handler = this.authDecisionHandler;
+    if (!auth || !handler) return false;
+    handler(auth.id, value);
+    return true;
+  }
+
+  setAuthDecisionHandler(handler: UiAuthDecisionHandler): () => void {
+    if (this.authDecisionHandler) throw new Error("An auth decision handler is already registered");
+    this.authDecisionHandler = handler;
+    return () => {
+      if (this.authDecisionHandler === handler) this.authDecisionHandler = undefined;
+    };
   }
 
   setPickerDecisionHandler(handler: UiPickerDecisionHandler): () => void {

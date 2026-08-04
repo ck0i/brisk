@@ -11,11 +11,11 @@ import { createFindTool } from "../tools/find.ts";
 import { createListTool } from "../tools/list.ts";
 import { ToolRegistry, type ToolDefinition } from "../tools/registry.ts";
 import { createSearchTool } from "../tools/search.ts";
-import { CheckpointStore } from "../subagents/checkpoint.ts";
+import { CheckpointStore, withoutPendingToolTurn } from "../subagents/checkpoint.ts";
 import { SubagentManager } from "../subagents/manager.ts";
 import { PatchOverlayWorkspace, createPatchOverlayTools } from "../subagents/patch-overlay.ts";
 import { parseTaskInput, serializeTaskResult } from "../subagents/result.ts";
-import { taskInputSchema } from "../subagents/task-tool.ts";
+import { SUBAGENT_TASK_TIMEOUT_MS, taskInputSchema } from "../subagents/task-tool.ts";
 import type {
   ChildSessionAdapter,
   ChildSessionAdapterContext,
@@ -38,6 +38,7 @@ export interface RuntimeSubagentsOptions {
   readonly permissions: PermissionManager;
   readonly providerService?: ProviderService;
   readonly fakeProvider: boolean;
+  readonly agentInstructionPrompts?: readonly string[];
   readonly parentLoop: AgentLoop;
   readonly contextManager: ContextManager;
   readonly session: SessionRuntime;
@@ -71,7 +72,7 @@ export class RuntimeSubagents {
       checkpointStore: new CheckpointStore({ directory: options.checkpointDirectory }),
       createCheckpoint: async ({ signal }) => {
         return await options.contextManager.prepare(
-          options.parentLoop.messages,
+          withoutPendingToolTurn(options.parentLoop.messages),
           options.parentLoop.modelId,
           signal,
         );
@@ -92,6 +93,9 @@ export class RuntimeSubagents {
       defaultModel: options.defaultModel,
       maxConcurrency: options.maxConcurrency,
       maxDepth: options.maxDepth,
+      ...(options.agentInstructionPrompts === undefined
+        ? {}
+        : { additionalSystemPrompt: options.agentInstructionPrompts }),
       childSessionFactory: async (context) => await createChildAdapter(options, context),
       childToolsFactory: async (context) => {
         if (!runtime) throw new Error("Subagent runtime is not initialized");
@@ -127,10 +131,12 @@ export class RuntimeSubagents {
   private createTaskDefinition(): ToolDefinition<TaskInput> {
     return {
       name: "task",
-      description: "Run a focused research or isolated patch task in a context-branched child.",
+      description:
+        "Run a focused research or isolated patch task in a context-branched child. Address description directly to the child with the underlying work; do not ask it to spawn itself.",
       inputSchema: taskInputSchema,
       readOnly: true,
       parallelSafe: true,
+      timeoutMs: SUBAGENT_TASK_TIMEOUT_MS,
       parse: parseTaskInput,
       execute: async (input, context) => {
         const allowed = await this.options.permissions.authorize(
@@ -258,14 +264,14 @@ function splitSpecifier(specifier: string): { provider: string; model: string } 
 }
 
 function toUiAgent(info: ChildSessionInfo): UiAgentIndicator {
-  const provider = splitSpecifier(info.model).provider;
+  const model = splitSpecifier(info.model);
   const summary = info.result?.summary;
   return {
     id: info.childSessionId,
     childSessionId: info.childSessionId,
     description: info.description,
-    provider,
-    model: info.model,
+    provider: model.provider,
+    model: model.model,
     mode: info.mode,
     status: info.status,
     inputTokens: info.usage.inputTokens,

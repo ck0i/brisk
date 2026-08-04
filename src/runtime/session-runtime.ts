@@ -49,11 +49,26 @@ export class SessionRuntime {
       if (options.sessionId) loaded = await repository.open(options.sessionId);
       else if (options.continueLast) loaded = await repository.continueLatest(options.workspace);
       if (!loaded) {
+        let selectedProvider = options.selectedProvider;
+        let selectedModel = options.selectedModel;
+        if (
+          !options.sessionId &&
+          !options.continueLast &&
+          selectedProvider === undefined &&
+          selectedModel === undefined
+        ) {
+          const latest = (await repository.list({ workspace: options.workspace })).find(
+            (record) =>
+              record.selectedProvider !== "unselected" && record.selectedModel !== "unselected",
+          );
+          selectedProvider = latest?.selectedProvider;
+          selectedModel = latest?.selectedModel;
+        }
         const created = await repository.create({
           title: defaultTitle(),
           workspace: options.workspace,
-          selectedProvider: options.selectedProvider ?? "unselected",
-          selectedModel: options.selectedModel ?? "unselected",
+          selectedProvider: selectedProvider ?? "unselected",
+          selectedModel: selectedModel ?? "unselected",
         });
         loaded = await repository.open(created.metadata.id);
       }

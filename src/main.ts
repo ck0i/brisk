@@ -9,6 +9,7 @@ interface InteractiveController {
   abort(): void;
   openModelPicker(): Promise<void>;
   openSessionPicker(): Promise<void>;
+  openPath(path: string, tui: import("./app.tsx").TuiRuntime): Promise<void>;
   invokeKeybinding(key: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -121,6 +122,10 @@ async function main(): Promise<void> {
       openSessions(store) {
         if (controller) void controller.openSessionPicker();
         else store.update({ status: "sessions loading" });
+      },
+      openPath(path, store, tui) {
+        if (controller) void controller.openPath(path, tui);
+        else store.update({ status: "finishing initialization" });
       },
       keybinding(key, store) {
         if (controller) void controller.invokeKeybinding(key);

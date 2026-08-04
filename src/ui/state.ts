@@ -8,6 +8,7 @@ export interface UiToolCard {
   summary?: string;
   output?: string;
   diff?: string;
+  targetPaths?: readonly string[];
   expanded?: boolean;
 }
 

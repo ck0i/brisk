@@ -177,6 +177,81 @@ test("Ctrl+C clears composer input and Ctrl+D exits", async () => {
   }
 });
 
+test("Ctrl+C and Ctrl+Shift+C copy mouse-selected transcript text", async () => {
+  const store = new UiStore("fixture");
+  store.addMessage({ id: "copy", role: "assistant", content: "copy this selected text" });
+  const setup = await renderRoot(store, 70, 20);
+  const copied: string[] = [];
+  setup.renderer.copyToClipboardOSC52 = (text: string) => {
+    copied.push(text);
+    return true;
+  };
+  try {
+    await setup.renderOnce();
+    const role = setup.renderer.root.findDescendantById("message-role-copy");
+    expect(role).toBeDefined();
+    if (!role || !("x" in role) || !("y" in role)) throw new Error("missing role target");
+    setup.renderer.startSelection(role, role.x, role.y);
+    setup.renderer.updateSelection(role, role.x + "Agent".length, role.y, {
+      finishDragging: true,
+    });
+    const selected = setup.renderer.getSelection()?.getSelectedText() ?? "";
+    expect(selected).toContain("Agent");
+
+    setup.mockInput.pressKey("c", { ctrl: true });
+    await setup.flush();
+    expect(copied).toEqual(["Agent"]);
+    expect(store.snapshot.status).toBe("selection copied");
+
+    setup.mockInput.pressKey("c", { ctrl: true, shift: true });
+    await setup.flush();
+    expect(copied).toEqual(["Agent", "Agent"]);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("Ctrl+click opens an edit preview target path", async () => {
+  const store = new UiStore("fixture");
+  store.addMessage({
+    id: "tool-path",
+    role: "assistant",
+    content: "",
+    tools: [
+      {
+        id: "edit-click",
+        name: "edit",
+        status: "completed",
+        summary: "src/tests.ts",
+        targetPaths: ["src/tests.ts"],
+      },
+    ],
+  });
+  const opened: string[] = [];
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={() => true}
+        onAbort={() => {}}
+        onExit={() => {}}
+        onOpenPath={(path) => opened.push(path)}
+      />
+    ),
+    { width: 80, height: 20 },
+  );
+  try {
+    await setup.renderOnce();
+    const target = setup.renderer.root.findDescendantById("tool-path-edit-click-0");
+    expect(target).toBeDefined();
+    if (!target || !("x" in target) || !("y" in target)) throw new Error("missing path target");
+    await setup.mockMouse.click(target.x + 8, target.y, 0, { modifiers: { ctrl: true } });
+    expect(opened).toEqual(["src/tests.ts"]);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("composer clears on send and preserves a newer draft when the request finishes", async () => {
   const store = new UiStore("fixture");
   const submissions: string[] = [];

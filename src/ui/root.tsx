@@ -1,11 +1,13 @@
 import {
+  CliRenderEvents,
   SyntaxStyle,
+  type CliRenderer,
   type InputRenderable,
   type KeyBinding,
   type ScrollBoxRenderable,
   type TextareaRenderable,
 } from "@opentui/core";
-import { onResize, useKeyboard } from "@opentui/solid";
+import { onResize, useKeyboard, useRenderer } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import { redactSecrets } from "../providers/secret-redaction.ts";
@@ -66,6 +68,13 @@ const COMPOSER_BINDINGS: KeyBinding[] = [
   { name: "j", ctrl: true, action: "newline" },
 ];
 
+function isCopyInputSequence(sequence: string): boolean {
+  if (sequence === "\u0003") return true;
+  if (!sequence.startsWith("\u001b")) return false;
+  const escaped = sequence.slice(1);
+  return /^\[99;(?:5|6)(?::\d+)?u$/.test(escaped) || /^\[27;(?:5|6);99~$/.test(escaped);
+}
+
 function normalizedExtensionKey(key: {
   readonly name: string;
   readonly ctrl: boolean;
@@ -89,7 +98,9 @@ export interface RootProps {
   onExit: () => void;
   onOpenModels?: () => void;
   onOpenSessions?: () => void;
+  onOpenPath?: (path: string) => void;
   onKeybinding?: (key: string) => void;
+  renderer?: CliRenderer;
 }
 
 function disclosedText(value: string, expanded: boolean | undefined, limit = 240): string {
@@ -120,10 +131,14 @@ function MessageBody(props: {
   message: UiMessage;
   syntaxStyle: SyntaxStyle;
   showThinking: boolean;
+  onOpenPath?: (path: string) => void;
 }) {
   return (
     <box flexDirection="column" marginBottom={1} width="100%">
-      <text fg={props.message.role === "user" ? COLORS.user : COLORS.accent}>
+      <text
+        id={`message-role-${props.message.id}`}
+        fg={props.message.role === "user" ? COLORS.user : COLORS.accent}
+      >
         {messageRoleLabel(props.message.role)}
         {props.message.streaming ? "  ◐" : ""}
       </text>
@@ -167,6 +182,24 @@ function MessageBody(props: {
               {tool.summary ? ` · ${tool.summary}` : ""}
               {tool.output || tool.diff ? ` · ${tool.expanded ? "expanded" : "collapsed"}` : ""}
             </text>
+            <For each={tool.targetPaths ?? []}>
+              {(path, index) => (
+                <text
+                  id={`tool-path-${tool.id}-${index()}`}
+                  fg={COLORS.accent}
+                  wrapMode="none"
+                  truncate
+                  onMouseDown={(event) => {
+                    if (event.button !== 0 || !event.modifiers.ctrl) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    props.onOpenPath?.(path);
+                  }}
+                >
+                  file · <u>{path}</u> · Ctrl+click to open
+                </text>
+              )}
+            </For>
             <Show when={tool.expanded && tool.diff}>
               {(diff: () => string) => (
                 <box flexDirection="column" width="100%">
@@ -837,7 +870,11 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
   );
 }
 
-function Conversation(props: { messages: readonly UiMessage[]; showThinking: boolean }) {
+function Conversation(props: {
+  messages: readonly UiMessage[];
+  showThinking: boolean;
+  onOpenPath?: (path: string) => void;
+}) {
   const syntaxStyle = SyntaxStyle.fromStyles({
     default: { fg: COLORS.text },
     keyword: { fg: "#ff7b72", bold: true },
@@ -881,6 +918,7 @@ function Conversation(props: { messages: readonly UiMessage[]; showThinking: boo
           message={message}
           syntaxStyle={syntaxStyle}
           showThinking={props.showThinking}
+          {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
         />
       )}
     </For>
@@ -888,6 +926,8 @@ function Conversation(props: { messages: readonly UiMessage[]; showThinking: boo
 }
 
 export function Root(props: RootProps) {
+  const contextRenderer = useRenderer();
+  const renderer = props.renderer ?? contextRenderer;
   const [state, setState] = createSignal(props.store.snapshot);
   const [composerRows, setComposerRows] = createSignal(1);
   const [composerText, setComposerText] = createSignal("");
@@ -908,10 +948,23 @@ export function Root(props: RootProps) {
     state().agentPanel !== undefined;
 
   const unsubscribe = props.store.subscribe(setState);
+  let selectedText = "";
+  const rememberSelection = (selection: { getSelectedText(): string } | null): void => {
+    const text = selection?.getSelectedText() ?? "";
+    if (text.length > 0) selectedText = text;
+  };
+  const copySelectedInput = (sequence: string): boolean => {
+    if (!renderer.hasSelection || !isCopyInputSequence(sequence)) return false;
+    return copySelection();
+  };
+  renderer.on(CliRenderEvents.SELECTION, rememberSelection);
+  renderer.prependInputHandler(copySelectedInput);
   onCleanup(() => {
     disposed = true;
     composer = undefined;
     conversation = undefined;
+    renderer.off(CliRenderEvents.SELECTION, rememberSelection);
+    renderer.removeInputHandler(copySelectedInput);
     unsubscribe();
   });
 
@@ -1055,12 +1108,32 @@ export function Root(props: RootProps) {
     return true;
   };
 
+  const copySelection = (): boolean => {
+    const current = renderer.getSelection()?.getSelectedText() ?? "";
+    const text = current.length > 0 ? current : selectedText;
+    if (text.length === 0) return false;
+    const copied = renderer.copyToClipboardOSC52(text);
+    props.store.update({
+      status: copied ? "selection copied" : "clipboard unavailable",
+      ...(copied ? {} : { notice: "The terminal does not report OSC 52 clipboard support." }),
+    });
+    return true;
+  };
+
   useKeyboard((key) => {
     if (key.ctrl && key.name === "d") {
       key.preventDefault();
       key.stopPropagation();
       props.onExit();
       return;
+    }
+    if (key.ctrl && key.name === "c" && (key.shift || renderer.hasSelection)) {
+      if (copySelection()) {
+        key.preventDefault();
+        key.stopPropagation();
+        return;
+      }
+      if (key.shift) return;
     }
     if (state().textInput) {
       if (key.name === "escape" || (key.ctrl && key.name === "c")) {
@@ -1226,7 +1299,11 @@ export function Root(props: RootProps) {
               ··· {hiddenMessageCount().toLocaleString()} older messages · PageUp loads more
             </text>
           </Show>
-          <Conversation messages={visibleMessages()} showThinking={state().showThinking} />
+          <Conversation
+            messages={visibleMessages()}
+            showThinking={state().showThinking}
+            {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
+          />
         </Show>
       </scrollbox>
 

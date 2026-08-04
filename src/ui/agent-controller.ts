@@ -194,6 +194,7 @@ export class AgentUiController {
               ...card,
               status: "running",
               summary: event.preview.summary,
+              targetPaths: [...(event.preview.targetPaths ?? [])],
               ...(event.preview.diff === undefined
                 ? {}
                 : { diff: event.preview.diff, expanded: true }),

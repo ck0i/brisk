@@ -15,6 +15,7 @@ export interface TuiHandlers {
   abort?: (store: UiStore) => void;
   openModels?: (store: UiStore) => void;
   openSessions?: (store: UiStore) => void;
+  openPath?: (path: string, store: UiStore, runtime: TuiRuntime) => void;
   keybinding?: (key: string, store: UiStore) => void;
   cleanup?: () => void | Promise<void>;
 }
@@ -93,7 +94,9 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
           onExit={exit}
           onOpenModels={() => options.handlers.openModels?.(store)}
           onOpenSessions={() => options.handlers.openSessions?.(store)}
+          onOpenPath={(path) => options.handlers.openPath?.(path, store, runtime)}
           onKeybinding={(key) => options.handlers.keybinding?.(key, store)}
+          renderer={renderer}
         />
       ),
       renderer,

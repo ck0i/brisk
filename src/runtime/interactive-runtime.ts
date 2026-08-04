@@ -13,6 +13,7 @@ import { buildWorkspacePrompt } from "../core/system-prompt.ts";
 import type { JsonValue, Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
 import { redactedErrorMessage } from "../providers/secret-redaction.ts";
+import { openFileInEditor } from "./file-opener.ts";
 import { BUILT_IN_BRISK_OAUTH_PROVIDERS } from "../providers/auth-service.ts";
 import {
   ProviderService,
@@ -182,6 +183,26 @@ export class InteractiveRuntime {
   async openSessionPicker(): Promise<void> {
     const selected = await this.pickSession();
     if (selected) await this.switchSession(selected);
+  }
+
+  async openPath(authoredPath: string, tui: TuiRuntime): Promise<void> {
+    const paths = this.codingServices?.hashline.paths;
+    if (!paths) {
+      this.store.update({ status: "tools loading" });
+      return;
+    }
+    try {
+      const resolved = paths.resolveRead(authoredPath);
+      this.store.update({ status: `opening ${resolved.displayPath}` });
+      await tui.runSuspended(async () => await openFileInEditor(resolved.canonicalPath));
+    } catch (error) {
+      this.store.update({
+        status: "editor failed",
+        notice: redactedErrorMessage(error),
+      });
+      return;
+    }
+    this.store.update({ status: this.store.snapshot.busy ? "responding" : "ready" });
   }
 
   async invokeKeybinding(key: string): Promise<void> {

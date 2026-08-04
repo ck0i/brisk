@@ -30,16 +30,18 @@ Policy presets (not OS sandboxes): `safe` prompts for writes and shell; `write` 
 
 ## Keybindings
 
-| Key                        | Action                        |
-| -------------------------- | ----------------------------- |
-| `Enter`                    | Submit (steers while busy)    |
-| `Shift+Enter`, `Ctrl+J`, … | Newline                       |
-| `Esc`                      | Abort active work             |
-| `Ctrl+C`                   | Clear composer input          |
-| `Ctrl+D`                   | Exit                          |
-| `Ctrl+P`                   | Model picker                  |
-| `Ctrl+O`                   | Session picker                |
-| `A` / `S` / `D`            | Approve once / session / deny |
+| Key                        | Action                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `Enter`                    | Submit (steers while busy)                                                     |
+| `Shift+Enter`, `Ctrl+J`, … | Newline                                                                        |
+| `Esc`                      | Abort active work                                                              |
+| `Ctrl+C`, `Ctrl+Shift+C`   | Copy highlighted TUI text; Ctrl+C clears the composer when nothing is selected |
+| `Ctrl+D`                   | Exit                                                                           |
+| `Ctrl+P`                   | Model picker                                                                   |
+| `Ctrl+O`                   | Session picker                                                                 |
+| `A` / `S` / `D`            | Approve once / session / deny                                                  |
+
+Edit previews show each target as a clickable path. Hold Ctrl and click a path to open it. Brisk uses `BRISK_EDITOR`, then `VISUAL`, then `EDITOR`; values may include arguments such as `code --wait`. Without one, it uses the platform file opener.
 
 ## AGENTS.md
 

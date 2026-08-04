@@ -87,6 +87,7 @@ describe("AgentUiController", () => {
       status: "completed",
       summary: "value.ts",
       diff: "--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n",
+      targetPaths: ["value.ts"],
       expanded: true,
     });
   });

@@ -52,6 +52,6 @@ Use `--json` on list/status/doctor commands. Do not attach `auth.db`, callbacks,
 
 **Truncated JSONL** — Partial final lines are ignored; recovery may copy a `.partial` file.
 
-**Compaction** — Needs a known model context window and enough estimated usage (`/context`). `/compact` while idle always attempts a pass.
+**Compaction** — Needs a known model context window. Brisk checks every provider turn against the configured percentage using active history, system instructions, and tool schemas, corrected by measured input usage when available. Cache read/write counters are not part of this calculation. `/context` shows current use, and `/compact` while idle always attempts a pass. Each child agent has an independent automatic Snapcompact lifecycle using the same settings.
 
 **Child agents** — Queued when at `maxSubagents`; depth limit returns blocked. Patch children return diffs only. A running child with no provider usage shows “waiting for first response”; live stream/tool events are shown separately because some providers, notably Cursor, delay or omit token accounting. Stalled Cursor child attempts use a 90-second stream deadline, retry from a fresh conversation, and retain the final failure reason in agent detail.

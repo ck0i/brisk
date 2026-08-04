@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { ContextManager } from "../../src/context/context-manager.ts";
 import { AgentLoop } from "../../src/core/agent-loop.ts";
 import type { Message } from "../../src/core/messages.ts";
 import { FakeProvider, type FakeProviderTurn } from "../../src/providers/fake-provider.ts";
@@ -112,6 +113,46 @@ describe("SubagentManager execution", () => {
       expect(manager.getTranscript(childSessionId)).not.toContain(prefix[0]);
       expect(manager.get(childSessionId)?.checkpointId).toBe(sharedCheckpoint?.id);
     }
+  });
+
+  test("automatically compacts each child's checkpoint and continuation", async () => {
+    const largePrefix: readonly Message[] = [
+      { role: "user", content: `old parent request ${"x".repeat(9000)}` },
+      { role: "assistant", content: `old parent response ${"y".repeat(9000)}`, toolCalls: [] },
+      { role: "user", content: "recent parent tail" },
+    ];
+    let provider: FakeProvider | undefined;
+    let childContext: ContextManager | undefined;
+    const manager = new SubagentManager({
+      checkpointStore: new CheckpointStore(),
+      createCheckpoint: () => largePrefix,
+      defaultModel: "fake/child",
+      providerFactory: (context) => {
+        provider = new FakeProvider([completeTurn(context.childSessionId, 0)]);
+        return provider;
+      },
+      contextLifecycleFactory: () => {
+        childContext = new ContextManager({
+          model: {
+            provider: "fake",
+            api: "openai-completions",
+            model: "fake/child",
+            contextWindow: 20_000,
+            supportsImages: false,
+          },
+          recentTargetTokens: 100,
+          maxFrames: 1,
+        });
+        return childContext;
+      },
+    });
+
+    const result = await manager.run({ description: "finish the delegated work" });
+
+    expect(result.status).toBe("completed");
+    expect(childContext?.inspect().compactionCount).toBe(1);
+    expect(provider?.requests[0]?.messages[0]?.content).toContain("TEXT-ONLY FALLBACK");
+    expect(provider?.requests[0]?.messages).not.toContain(largePrefix[0]);
   });
 
   test("uses complete_task exactly, falls back to final text, and reports blocked and failed", async () => {

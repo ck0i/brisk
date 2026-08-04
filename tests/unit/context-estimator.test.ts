@@ -61,6 +61,7 @@ describe("context token estimation and thresholds", () => {
     expect(contextThreshold(200_000)).toBe(170_000);
     expect(contextThreshold(200_000, 0.8)).toBe(160_000);
     expect(contextThreshold(200_000, 0.95)).toBe(170_000);
+    expect(contextThreshold(372_000, 0.85)).toBe(316_200);
     expect(contextThreshold(10_000)).toBe(-6384);
     expect(contextThreshold(null)).toBeUndefined();
     expect(contextThreshold(undefined)).toBeUndefined();

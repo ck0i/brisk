@@ -73,6 +73,10 @@ export class ContextManager implements AgentContextLifecycle {
   private lastHistory: readonly Message[];
   private activeContext: readonly Message[];
   private activeEstimate: TokenEstimate;
+  private fixedInputTokens = 0;
+  private preparedEstimateTokens: number | undefined;
+  private observedInputTokens: number | undefined;
+  private observedEstimateTokens: number | undefined;
   private fallbackMode: ContextFallbackMode = "none";
   private compactionCount = 0;
   private revision = 0;
@@ -146,8 +150,13 @@ export class ContextManager implements AgentContextLifecycle {
     messages: readonly Message[],
     model: string,
     signal: AbortSignal,
+    fixedInputTokens?: number,
   ): Promise<readonly Message[]> {
     this.updateModelId(model);
+    if (fixedInputTokens !== undefined) {
+      validateNonnegativeInteger(fixedInputTokens, "fixedInputTokens");
+      this.fixedInputTokens = fixedInputTokens;
+    }
     throwIfAborted(signal);
     this.lastHistory = messages;
 
@@ -157,14 +166,11 @@ export class ContextManager implements AgentContextLifecycle {
 
     this.rebuildActiveContext(messages);
     const threshold = this.threshold;
-    if (
-      this.automaticCompaction &&
-      threshold !== undefined &&
-      this.activeEstimate.totalTokens >= threshold
-    ) {
+    if (this.automaticCompaction && threshold !== undefined && this.currentTokens() >= threshold) {
       await this.performCompaction(messages, signal, "automatic");
       this.rebuildActiveContext(messages);
     }
+    this.preparedEstimateTokens = this.estimatedInputTokens();
     throwIfAborted(signal);
     return this.activeContext;
   }
@@ -194,6 +200,23 @@ export class ContextManager implements AgentContextLifecycle {
     return this.inspect();
   }
 
+  observeUsage(usage: Usage): void {
+    // Cache read/write values are accounting telemetry, not compaction inputs.
+    const measuredInput = usage.inputTokens;
+    if (!Number.isSafeInteger(measuredInput) || measuredInput <= 0) return;
+    this.observedInputTokens = measuredInput;
+    this.observedEstimateTokens = this.preparedEstimateTokens ?? this.estimatedInputTokens();
+  }
+
+  currentTokens(): number {
+    const estimated = this.estimatedInputTokens();
+    if (this.observedInputTokens === undefined || this.observedEstimateTokens === undefined) {
+      return estimated;
+    }
+    const projected = this.observedInputTokens + estimated - this.observedEstimateTokens;
+    return Math.max(estimated, Math.max(0, Math.round(projected)));
+  }
+
   modelChanged(model: string): void {
     this.updateModelId(model);
   }
@@ -202,6 +225,9 @@ export class ContextManager implements AgentContextLifecycle {
     if (sameModel(this.model, model)) return;
     this.model = model;
     this.revision += 1;
+    this.preparedEstimateTokens = undefined;
+    this.observedInputTokens = undefined;
+    this.observedEstimateTokens = undefined;
     this.renderRequired =
       this.compaction !== undefined &&
       model.supportsImages &&
@@ -216,8 +242,8 @@ export class ContextManager implements AgentContextLifecycle {
     }
     const threshold = this.threshold;
     return {
-      estimatedTokens: this.activeEstimate.totalTokens,
-      currentUseTokens: this.activeEstimate.totalTokens,
+      estimatedTokens: this.estimatedInputTokens(),
+      currentUseTokens: this.currentTokens(),
       contextWindow: usableContextWindow(this.model.contextWindow) ?? null,
       thresholdTokens: threshold ?? null,
       nextThresholdTokens: threshold ?? null,
@@ -239,6 +265,10 @@ export class ContextManager implements AgentContextLifecycle {
 
   private get threshold(): number | undefined {
     return contextThreshold(this.model.contextWindow, this.thresholdPercent);
+  }
+
+  private estimatedInputTokens(): number {
+    return this.activeEstimate.totalTokens + this.fixedInputTokens;
   }
 
   private updateModelId(modelId: string): void {
@@ -292,7 +322,7 @@ export class ContextManager implements AgentContextLifecycle {
     const historySnapshot = [...history];
     const recentMessages = historySnapshot.slice(nextCount);
     const messagesToSummarize = rerender ? [] : historySnapshot.slice(previousCount, nextCount);
-    const tokensBefore = estimateMessages(historySnapshot).totalTokens;
+    const tokensBefore = this.currentTokens();
 
     // Loading native snapcompact and its renderer is deliberately confined to
     // an actual compaction pass. Below-threshold turns never load the package.
@@ -413,6 +443,9 @@ export class ContextManager implements AgentContextLifecycle {
       renderKey: renderKey(this.model),
     };
     this.compactionCount += 1;
+    this.preparedEstimateTokens = undefined;
+    this.observedInputTokens = undefined;
+    this.observedEstimateTokens = undefined;
     this.renderRequired = false;
   }
 
@@ -676,6 +709,12 @@ function usableContextWindow(value: number | null | undefined): number | undefin
 function validatePositiveInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value <= 0) {
     throw new RangeError(`${name} must be a positive integer`);
+  }
+}
+
+function validateNonnegativeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new RangeError(`${name} must be a non-negative integer`);
   }
 }
 

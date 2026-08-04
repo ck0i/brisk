@@ -91,6 +91,51 @@ describe("ContextManager lifecycle", () => {
     expect(inspection.fallbackMode).toBe("structured-text");
   });
 
+  test("includes fixed provider input and measured input drift in every threshold check", async () => {
+    const overheadHistory: Message[] = [
+      { role: "user", content: `old request ${"x".repeat(9000)}` },
+      { role: "assistant", content: `old response ${"y".repeat(9000)}`, toolCalls: [] },
+      { role: "user", content: "recent tail" },
+    ];
+    const overheadManager = new ContextManager({
+      model: textModel,
+      recentTargetTokens: 100,
+      maxFrames: 1,
+    });
+
+    await overheadManager.prepare(overheadHistory, textModel.model, neverAbort(), 80_000);
+    expect(overheadManager.inspect().compactionCount).toBe(1);
+
+    const measuredHistory: Message[] = [
+      { role: "user", content: `older request ${"a".repeat(4000)}` },
+      { role: "assistant", content: `older response ${"b".repeat(4000)}`, toolCalls: [] },
+      { role: "user", content: "tail" },
+    ];
+    const measuredManager = new ContextManager({
+      model: textModel,
+      recentTargetTokens: 100,
+      maxFrames: 1,
+    });
+    await measuredManager.prepare(measuredHistory, textModel.model, neverAbort());
+    measuredManager.observeUsage({
+      inputTokens: 83_500,
+      outputTokens: 100,
+      cacheReadTokens: 1_000_000,
+      cacheWriteTokens: 1_000_000,
+    });
+
+    await measuredManager.prepare(measuredHistory, textModel.model, neverAbort());
+    expect(measuredManager.currentTokens()).toBe(83_500);
+    expect(measuredManager.inspect().compactionCount).toBe(0);
+
+    await measuredManager.prepare(
+      [...measuredHistory, { role: "user", content: "next turn ".repeat(100) }],
+      textModel.model,
+      neverAbort(),
+    );
+    expect(measuredManager.inspect().compactionCount).toBe(1);
+  });
+
   test("can disable threshold compaction without disabling explicit compaction", async () => {
     const history: Message[] = [
       { role: "user", content: `large request ${"x".repeat(18_000)}` },

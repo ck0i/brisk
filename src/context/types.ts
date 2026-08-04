@@ -58,7 +58,7 @@ export interface ContextManagerOptions {
   readonly recentTargetTokens?: number;
   /** Disable threshold-triggered compaction while retaining explicit and overflow compaction. */
   readonly automaticCompaction?: boolean;
-  /** Optional earlier trigger. Values above the reserve-based threshold never delay compaction. */
+  /** Provider-ready input trigger. Values above the reserve-based threshold never delay compaction. */
   readonly thresholdPercent?: number;
   readonly maxFrames?: number;
   readonly maxFrameDataBytes?: number;

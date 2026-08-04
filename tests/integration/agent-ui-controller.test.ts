@@ -52,6 +52,43 @@ describe("AgentUiController", () => {
     expect(store.snapshot.status).toBe("ready");
   });
 
+  test("shows current context rather than cumulative usage and excludes cache counters", async () => {
+    const store = new UiStore("fixture");
+    const loop = new AgentLoop({
+      provider: new FakeProvider([
+        {
+          text: "first",
+          usage: {
+            inputTokens: 100,
+            outputTokens: 10,
+            cacheReadTokens: 50_000,
+            cacheWriteTokens: 20_000,
+          },
+        },
+        {
+          text: "second",
+          usage: {
+            inputTokens: 150,
+            outputTokens: 20,
+            cacheReadTokens: 60_000,
+            cacheWriteTokens: 30_000,
+          },
+        },
+      ]),
+      model: "fake",
+    });
+    const controller = new AgentUiController(loop, store, 4);
+
+    await controller.submit("one");
+    await controller.submit("two");
+    await settleFrames();
+    controller.dispose();
+
+    expect(store.snapshot.contextTokens).toBe(170);
+    expect(store.snapshot.cacheReadTokens).toBe(110_000);
+    expect(store.snapshot.cacheWriteTokens).toBe(50_000);
+  });
+
   test("extracts unified diffs into expandable tool cards", async () => {
     const store = new UiStore("fixture");
     const tools = new ToolRegistry().register({

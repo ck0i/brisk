@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { ContextManager } from "../../src/context/context-manager.ts";
-import { AgentLoop } from "../../src/core/agent-loop.ts";
+import { AgentLoop, type AgentContextLifecycle } from "../../src/core/agent-loop.ts";
 import type { AgentEvent, NormalizedProviderError } from "../../src/core/events.ts";
 import type { JsonValue } from "../../src/core/messages.ts";
 import { FakeProvider } from "../../src/providers/fake-provider.ts";
@@ -77,6 +77,44 @@ describe("AgentLoop streaming and tools", () => {
     expect(provider.requests[0]?.systemPrompt[4]).toContain('"name":"first_tool"');
     expect(provider.requests[0]?.systemPrompt[4]).not.toContain('"name":"second_tool"');
     expect(provider.requests[1]?.systemPrompt[4]).toContain('"name":"second_tool"');
+  });
+
+  test("reports provider-ready context overhead and measured input to the lifecycle", async () => {
+    const fixedInputs: number[] = [];
+    const observedInputs: number[] = [];
+    const contextEvents: number[] = [];
+    const lifecycle: AgentContextLifecycle = {
+      prepare(messages, _model, _signal, fixedInputTokens) {
+        fixedInputs.push(fixedInputTokens ?? 0);
+        return Promise.resolve(messages);
+      },
+      forceCompact(messages) {
+        return Promise.resolve(messages);
+      },
+      observeUsage(usage) {
+        observedInputs.push(usage.inputTokens);
+      },
+      currentTokens: () => 12_345,
+    };
+    const loop = new AgentLoop({
+      provider: new FakeProvider([
+        {
+          text: "done",
+          usage: { inputTokens: 321, outputTokens: 12, cacheReadTokens: 999_999 },
+        },
+      ]),
+      model: "fake",
+      contextLifecycle: lifecycle,
+    });
+    loop.subscribe((event) => {
+      if (event.type === "context_usage") contextEvents.push(event.contextTokens);
+    });
+
+    await loop.submit("question");
+
+    expect(fixedInputs[0]).toBeGreaterThan(0);
+    expect(observedInputs).toEqual([321]);
+    expect(contextEvents).toEqual([12_345]);
   });
 
   test("assembles partial arguments and streams thinking, text, tools, and usage", async () => {
@@ -344,6 +382,41 @@ describe("AgentLoop failures and retries", () => {
       expect(reported).toMatchObject({ kind: fixture.kind, status: fixture.status });
       expect(provider.requestCount).toBe(1);
     }
+  });
+
+  test("automatically compacts between tool turns when measured context crosses threshold", async () => {
+    const provider = new FakeProvider([
+      {
+        toolCalls: [{ id: "echo", name: "echo", arguments: { value: "large result" } }],
+        usage: { inputTokens: 83_600, outputTokens: 10, cacheReadTokens: 999_999 },
+      },
+      { text: "resumed after automatic compaction" },
+    ]);
+    const tools = new ToolRegistry().register<ValueArguments>({
+      name: "echo",
+      description: "return the provided value",
+      inputSchema: valueSchema,
+      parse: parseValueArguments,
+      execute: (input) => ({ content: input.value }),
+    });
+    const contextLifecycle = new ContextManager({
+      model: {
+        provider: "openai",
+        api: "openai-completions",
+        model: "fake",
+        contextWindow: 100_000,
+        supportsImages: false,
+      },
+      recentTargetTokens: 10,
+      maxFrames: 1,
+    });
+    const loop = new AgentLoop({ provider, tools, model: "fake", contextLifecycle });
+
+    await loop.submit("run the tool");
+
+    expect(provider.requestCount).toBe(2);
+    expect(contextLifecycle.inspect().compactionCount).toBe(1);
+    expect(provider.requests[1]?.messages[0]?.content).toContain("TEXT-ONLY FALLBACK");
   });
 
   test("force-compacts once on pre-delta context overflow and resumes transparently", async () => {

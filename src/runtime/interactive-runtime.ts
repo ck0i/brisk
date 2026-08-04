@@ -6,7 +6,12 @@ import { ConfigManager } from "../config/manager.ts";
 import { ensureConfigDirectories, resolveConfigPaths, type ConfigPaths } from "../config/paths.ts";
 import type { BriskConfig, ConfigOverrides, EffortSetting } from "../config/schema.ts";
 import { writeConfigValue } from "../config/write.ts";
-import { ContextManager, type ContextInspection, type ContextModel } from "../context/index.ts";
+import {
+  ContextManager,
+  estimateMessages,
+  type ContextInspection,
+  type ContextModel,
+} from "../context/index.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
 import { discoverAgentsInstructions } from "../core/agents-instructions.ts";
 import { buildWorkspacePrompt } from "../core/system-prompt.ts";
@@ -436,6 +441,7 @@ export class InteractiveRuntime {
       resolveModel: (specifier) => this.resolveContextModel(specifier),
     });
     this.contextManager = manager;
+    this.store.update({ contextTokens: manager.currentTokens() });
     return manager;
   }
 
@@ -651,6 +657,7 @@ export class InteractiveRuntime {
       agentInstructionPrompts: this.agentInstructionPrompts,
       parentLoop,
       contextManager,
+      compaction: this.configManager.current.compaction,
       session,
       store: this.store,
     });
@@ -675,7 +682,7 @@ export class InteractiveRuntime {
     const usage = session.usage;
     this.store.update({
       messages: uiMessagesFromHistory(session.messages),
-      contextTokens: usage.totalTokens ?? usage.inputTokens + usage.outputTokens,
+      contextTokens: estimateMessages(session.messages).totalTokens,
       cacheReadTokens: usage.cacheReadTokens ?? 0,
       cacheWriteTokens: usage.cacheWriteTokens ?? 0,
       cost: usage.cost ?? 0,

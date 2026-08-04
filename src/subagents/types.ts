@@ -1,3 +1,4 @@
+import type { AgentContextLifecycle } from "../core/agent-loop.ts";
 import type { JsonValue, Message, Usage } from "../core/messages.ts";
 import type { Provider } from "../providers/types.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
@@ -86,6 +87,10 @@ export interface SubagentManagerOptions {
   readonly checkpointStore: import("./checkpoint.ts").CheckpointStore;
   readonly createCheckpoint: CheckpointFactory;
   readonly providerFactory: (context: ChildProviderContext) => Provider | Promise<Provider>;
+  /** Create isolated context state for one child; the manager supplies its checkpoint prefix. */
+  readonly contextLifecycleFactory?: (
+    context: ChildProviderContext,
+  ) => AgentContextLifecycle | Promise<AgentContextLifecycle>;
   readonly defaultModel: string;
   readonly maxConcurrency?: number;
   readonly maxDepth?: number;

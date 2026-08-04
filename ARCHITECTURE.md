@@ -50,7 +50,7 @@ Append-only session JSONL; index is rebuildable. Partial final lines and incompl
 
 ## Context
 
-Full history stays in `AgentLoop`; `ContextManager` builds the active provider view and runs Snapcompact on threshold, `/compact`, or overflow recovery.
+Full history stays in `AgentLoop`; `ContextManager` builds the active provider view and runs Snapcompact on threshold, `/compact`, or overflow recovery. Threshold checks include active messages, system/tool input, and measured input drift, but not cache read/write counters. Every subagent owns an isolated `ContextManager` over its immutable checkpoint plus private continuation.
 
 ## Subagents and patch isolation
 

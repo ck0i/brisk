@@ -9,6 +9,7 @@ export class AgentUiController {
   private readonly unsubscribe: () => void;
   private readonly batcher: EventBatcher<AgentEvent>;
   private activeMessageId: string | undefined;
+  private requestContextEstimate: number | undefined;
   private responseSequence = 0;
 
   constructor(
@@ -66,6 +67,10 @@ export class AgentUiController {
 
     for (const event of events) {
       switch (event.type) {
+        case "context_usage":
+          this.requestContextEstimate = event.contextTokens;
+          contextTokens = event.contextTokens;
+          break;
         case "user_message":
           if (event.message.internal) break;
           messages.push({
@@ -126,13 +131,19 @@ export class AgentUiController {
         case "tool_call_delta":
         case "tool_call_end":
           break;
-        case "usage":
-          contextTokens += event.usage.inputTokens + event.usage.outputTokens;
+        case "usage": {
+          // The completion becomes input on the next turn; cache accounting stays separate.
+          const measuredContext = event.usage.inputTokens + event.usage.outputTokens;
+          if (measuredContext > 0) {
+            contextTokens = Math.max(this.requestContextEstimate ?? 0, measuredContext);
+          }
           cacheReadTokens += event.usage.cacheReadTokens ?? 0;
           cacheWriteTokens += event.usage.cacheWriteTokens ?? 0;
           cost += event.usage.cost ?? 0;
           break;
+        }
         case "response_end": {
+          this.requestContextEstimate = undefined;
           const active = activeMessage();
           if (active) replaceMessage(active.id, { streaming: false });
           status = active?.tools?.length ? "running tools" : "finishing";
@@ -240,6 +251,7 @@ export class AgentUiController {
           break;
         }
         case "error": {
+          this.requestContextEstimate = undefined;
           const active = activeMessage();
           if (active) {
             replaceMessage(active.id, {
@@ -252,6 +264,7 @@ export class AgentUiController {
           break;
         }
         case "cancelled": {
+          this.requestContextEstimate = undefined;
           const active = activeMessage();
           if (active) replaceMessage(active.id, { streaming: false, error: "Cancelled" });
           busy = false;

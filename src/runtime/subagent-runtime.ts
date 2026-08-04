@@ -1,9 +1,10 @@
-import type { EffortSetting } from "../config/schema.ts";
-import type { ContextManager } from "../context/context-manager.ts";
+import type { BriskConfig, EffortSetting } from "../config/schema.ts";
+import { ContextManager } from "../context/context-manager.ts";
+import type { ContextModel } from "../context/types.ts";
 import type { AgentLoop } from "../core/agent-loop.ts";
 import type { JsonValue, Message } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
-import type { ProviderService } from "../providers/provider-service.ts";
+import type { IsolatedProviderSelection, ProviderService } from "../providers/provider-service.ts";
 import type { SessionRuntime } from "./session-runtime.ts";
 import { ArtifactStore } from "../tools/artifact-store.ts";
 import type { ApprovalHandler, PermissionManager } from "../tools/approval.ts";
@@ -58,6 +59,7 @@ export interface RuntimeSubagentsOptions {
   readonly agentInstructionPrompts?: readonly string[];
   readonly parentLoop: AgentLoop;
   readonly contextManager: ContextManager;
+  readonly compaction?: BriskConfig["compaction"];
   readonly session: SessionRuntime;
   readonly store: UiStore;
 }
@@ -91,6 +93,7 @@ export class RuntimeSubagents {
 
   static create(options: RuntimeSubagentsOptions): RuntimeSubagents {
     let runtime: RuntimeSubagents | undefined;
+    const childContextModels = new Map<string, ContextModel>();
     const manager = new SubagentManager({
       checkpointStore: new CheckpointStore({ directory: options.checkpointDirectory }),
       createCheckpoint: async ({ signal }) => {
@@ -110,11 +113,29 @@ export class RuntimeSubagents {
           ]);
         }
         if (!options.providerService) throw new Error("Provider service is unavailable");
-        return options.providerService.createIsolatedProvider(
+        const selection = options.providerService.createIsolatedProvider(
           context.model,
           context.childSessionId,
           runtime?.defaultEffort ?? options.defaultEffort,
-        ).provider;
+        );
+        childContextModels.set(context.childSessionId, contextModelForChild(selection));
+        return selection.provider;
+      },
+      contextLifecycleFactory: (context) => {
+        const model =
+          childContextModels.get(context.childSessionId) ??
+          fallbackChildContextModel(options, context.model);
+        const compaction = options.compaction;
+        return new ContextManager({
+          model,
+          ...(compaction === undefined
+            ? {}
+            : {
+                recentTargetTokens: compaction.keepRecentTokens,
+                automaticCompaction: compaction.enabled,
+                thresholdPercent: compaction.thresholdPercent / 100,
+              }),
+        });
       },
       defaultModel: options.defaultModel,
       maxConcurrency: options.maxConcurrency,
@@ -128,6 +149,7 @@ export class RuntimeSubagents {
         return await runtime.createChildTools(context);
       },
       onChildFinished: async (info) => {
+        childContextModels.delete(info.childSessionId);
         await runtime?.finishChild(info);
       },
     });
@@ -365,6 +387,27 @@ function entryForMessage(message: Message) {
   if (message.role === "user") return { type: "user_message" as const, message };
   if (message.role === "assistant") return { type: "assistant_message" as const, message };
   return { type: "tool_result" as const, message };
+}
+
+function contextModelForChild(selection: IsolatedProviderSelection): ContextModel {
+  return {
+    provider: selection.record.provider,
+    api: selection.upstream.api,
+    model: selection.modelSpecifier,
+    contextWindow: selection.record.contextWindow,
+    supportsImages: selection.record.input.includes("image"),
+  };
+}
+
+function fallbackChildContextModel(options: RuntimeSubagentsOptions, model: string): ContextModel {
+  const parent = options.contextManager.inspect();
+  return {
+    provider: parent.provider,
+    api: parent.api,
+    model,
+    contextWindow: parent.contextWindow,
+    supportsImages: false,
+  };
 }
 
 function splitSpecifier(specifier: string): { provider: string; model: string } {

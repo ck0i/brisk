@@ -27,6 +27,7 @@ export class SubagentManager {
   private readonly checkpointStore: CheckpointStore;
   private readonly createCheckpointCallback: CheckpointFactory;
   private readonly providerFactory: SubagentManagerOptions["providerFactory"];
+  private readonly contextLifecycleFactory: SubagentManagerOptions["contextLifecycleFactory"];
   private defaultModel: string;
   private readonly maxDepth: number;
   private readonly additionalSystemPrompt: readonly string[];
@@ -44,6 +45,7 @@ export class SubagentManager {
     this.checkpointStore = options.checkpointStore;
     this.createCheckpointCallback = options.createCheckpoint;
     this.providerFactory = options.providerFactory;
+    this.contextLifecycleFactory = options.contextLifecycleFactory;
     this.defaultModel = options.defaultModel;
     this.maxDepth = options.maxDepth ?? 1;
     this.additionalSystemPrompt = [...(options.additionalSystemPrompt ?? [])];
@@ -280,6 +282,7 @@ export class SubagentManager {
         session.setAdapter(adapter);
       }
       provider = await this.providerFactory(providerContext);
+      const childContextLifecycle = await this.contextLifecycleFactory?.(providerContext);
       throwIfAborted(session.controller.signal);
 
       let loop: AgentLoop | undefined;
@@ -307,7 +310,7 @@ export class SubagentManager {
         provider,
         model: session.model,
         tools,
-        contextLifecycle: checkpointLifecycle(session.checkpoint),
+        contextLifecycle: checkpointLifecycle(session.checkpoint, childContextLifecycle),
         additionalSystemPrompt: this.additionalSystemPrompt,
         sessionRolePrompt: buildChildRolePrompt({
           depth: session.depth,
@@ -390,14 +393,30 @@ function providerContextFor(session: ChildSession): ChildProviderContext {
   };
 }
 
-function checkpointLifecycle(checkpoint: Checkpoint): AgentContextLifecycle {
+function checkpointLifecycle(
+  checkpoint: Checkpoint,
+  child?: AgentContextLifecycle,
+): AgentContextLifecycle {
   return {
-    prepare(messages) {
-      return Promise.resolve(composeContext(checkpoint.messages, messages));
+    prepare(messages, model, signal, fixedInputTokens) {
+      const combined = composeContext(checkpoint.messages, messages);
+      return child
+        ? child.prepare(combined, model, signal, fixedInputTokens)
+        : Promise.resolve(combined);
     },
-    forceCompact(messages) {
-      return Promise.resolve(composeContext(checkpoint.messages, messages));
+    forceCompact(messages, model, signal) {
+      const combined = composeContext(checkpoint.messages, messages);
+      return child ? child.forceCompact(combined, model, signal) : Promise.resolve(combined);
     },
+    ...(child?.observeUsage === undefined
+      ? {}
+      : { observeUsage: (usage) => child.observeUsage?.(usage) }),
+    ...(child?.currentTokens === undefined
+      ? {}
+      : { currentTokens: () => child.currentTokens?.() ?? 0 }),
+    ...(child?.modelChanged === undefined
+      ? {}
+      : { modelChanged: (model) => child.modelChanged?.(model) }),
   };
 }
 

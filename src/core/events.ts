@@ -107,6 +107,7 @@ export type ProviderEvent =
 
 export type AgentEvent =
   | ProviderEvent
+  | { readonly type: "context_usage"; readonly contextTokens: number }
   | { readonly type: "user_message"; readonly message: UserMessage }
   | { readonly type: "assistant_message"; readonly message: AssistantMessage }
   | {

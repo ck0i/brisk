@@ -14,7 +14,8 @@ import type {
   Usage,
   UserMessage,
 } from "./messages.ts";
-import type { Provider } from "../providers/types.ts";
+import { MESSAGE_OVERHEAD_TOKENS, estimateTextTokens } from "../context/estimator.ts";
+import type { Provider, ProviderToolSchema } from "../providers/types.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 
@@ -24,6 +25,7 @@ export interface AgentContextLifecycle {
     messages: readonly Message[],
     model: string,
     signal: AbortSignal,
+    fixedInputTokens?: number,
   ): Promise<readonly Message[]>;
   /** Force one compaction after a provider overflow before response deltas. */
   forceCompact(
@@ -31,6 +33,10 @@ export interface AgentContextLifecycle {
     model: string,
     signal: AbortSignal,
   ): Promise<readonly Message[]>;
+  /** Record measured input usage so the next threshold check can correct estimation drift. */
+  observeUsage?(usage: Usage): void;
+  /** Current provider-context use after the latest preparation. */
+  currentTokens?(): number;
   modelChanged?(model: string): void;
 }
 
@@ -241,6 +247,7 @@ export class AgentLoop {
         await this.collectResponse(signal);
       throwIfAborted(signal);
       this.accumulatedUsage = addUsage(this.accumulatedUsage, assistant.usage);
+      if (assistant.usage) this.contextLifecycle?.observeUsage?.(assistant.usage);
 
       const historyStart = this.history.length;
       this.history.push(assistant);
@@ -330,18 +337,26 @@ export class AgentLoop {
       | undefined;
     const calls = new Map<number, ToolCallBuilder>();
 
+    const toolSchemas = this.tools.schemas;
+    const systemPrompt = buildSystemPrompt(
+      toolSchemas,
+      [...this.additionalSystemPrompt, ...(this.dynamicSystemPrompt?.() ?? [])],
+      this.sessionRolePrompt,
+    );
     const sourceMessages = this.contextFilter?.(this.history) ?? this.history;
     const activeMessages = this.contextLifecycle
-      ? await this.contextLifecycle.prepare(sourceMessages, this.model, signal)
+      ? await this.contextLifecycle.prepare(
+          sourceMessages,
+          this.model,
+          signal,
+          fixedInputTokens(systemPrompt, toolSchemas),
+        )
       : sourceMessages;
     throwIfAborted(signal);
-    const toolSchemas = this.tools.schemas;
+    const contextTokens = this.contextLifecycle?.currentTokens?.();
+    if (contextTokens !== undefined) this.publish({ type: "context_usage", contextTokens });
     const events = this.provider.stream({
-      systemPrompt: buildSystemPrompt(
-        toolSchemas,
-        [...this.additionalSystemPrompt, ...(this.dynamicSystemPrompt?.() ?? [])],
-        this.sessionRolePrompt,
-      ),
+      systemPrompt,
       messages: [...activeMessages],
       tools: toolSchemas,
       signal,
@@ -535,6 +550,21 @@ export class AgentLoop {
 
 function invalidResponse(message: string): NormalizedProviderError {
   return new NormalizedProviderError(message, { kind: "invalid_response" });
+}
+
+function fixedInputTokens(
+  systemPrompt: readonly string[],
+  tools: readonly ProviderToolSchema[],
+): number {
+  const systemTokens = systemPrompt.reduce(
+    (total, block) => total + estimateTextTokens(block) + MESSAGE_OVERHEAD_TOKENS,
+    0,
+  );
+  const toolTokens =
+    tools.length === 0
+      ? 0
+      : estimateTextTokens(JSON.stringify(tools)) + tools.length * MESSAGE_OVERHEAD_TOKENS;
+  return systemTokens + toolTokens;
 }
 
 function addUsage(current: Usage | undefined, addition: Usage | undefined): Usage {

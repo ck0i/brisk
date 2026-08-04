@@ -67,9 +67,9 @@ User `AGENTS.md` lives beside global config; workspace `AGENTS.md` files overrid
 | `permissionMode`                    | `safe`, `write`, or prompt-free `yolo` (default `write`); hard-blocked operations remain denied |
 | `maxSubagents` / `maxSubagentDepth` | Concurrency and nesting; `0` disables children                                                  |
 | `goalMaxTurns`                      | Optional autonomous `/goal` continuation limit; omitted means unlimited                         |
-| `compaction.enabled`                | Automatic threshold compaction (default `true`)                                                 |
-| `compaction.thresholdPercent`       | 1–100 (default `85`)                                                                            |
-| `compaction.keepRecentTokens`       | Recent tail target (default `20000`)                                                            |
+| `compaction.enabled`                | Automatic main-agent and subagent compaction (default `true`)                                   |
+| `compaction.thresholdPercent`       | Provider-ready context percentage, excluding cache read/write counters (default `85`)           |
+| `compaction.keepRecentTokens`       | Recent tail target for each independent agent context (default `20000`)                         |
 | `ui.theme`                          | `default` or `high-contrast`                                                                    |
 | `ui.showThinking`                   | Expand thinking blocks by default                                                               |
 

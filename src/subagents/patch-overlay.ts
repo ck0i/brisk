@@ -952,7 +952,7 @@ function detectDominantLineEnding(text: string): "\r\n" | "\n" {
 }
 
 function unifiedDiff(oldPath: string, newPath: string, before: string, after: string): string {
-  return createTwoFilesPatch(oldPath, newPath, before, after, "", "", { context: 3 });
+  return createTwoFilesPatch(oldPath, newPath, before, after, "", "", { context: 1 });
 }
 
 function enforceTextBound(

@@ -108,6 +108,24 @@ describe("HashlineWorkspace edit", () => {
     });
   });
 
+  test("separates distant edits into hunks with one context line", async () => {
+    await withWorkspace(async ({ root, service }) => {
+      const filePath = path.join(root, "distant.txt");
+      const lines = Array.from({ length: 310 }, (_, index) => `line ${index + 1}`);
+      await writeFile(filePath, `${lines.join("\n")}\n`);
+      const read = await service.read({ path: "distant.txt" });
+
+      const pending = await service.edit({
+        patch: `${read.header}\nPUT 40.=40:\n+changed 40\nPUT 305.=305:\n+changed 305`,
+      });
+      const hunks = pending.preview.diff.split("\n").filter((line) => line.startsWith("@@"));
+
+      expect(hunks).toEqual(["@@ -39,3 +39,3 @@", "@@ -304,3 +304,3 @@"]);
+      expect(pending.preview.diff).toContain(" line 41\n@@ -304");
+      expect(pending.preview.diff).toContain("@@ -304,3 +304,3 @@\n line 304");
+    });
+  });
+
   test("preserves BOM, CRLF, and the final newline through Patcher", async () => {
     await withWorkspace(async ({ root, service }) => {
       const filePath = path.join(root, "windows.txt");

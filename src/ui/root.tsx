@@ -9,6 +9,7 @@ import { onResize, useKeyboard } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import { redactSecrets } from "../providers/secret-redaction.ts";
+import { diffSectionHeight, splitDiffPreview } from "./diff-presentation.ts";
 import { BUILT_IN_SLASH_COMMANDS, type SlashCommand } from "./slash-commands.ts";
 import type {
   UiAgentIndicator,
@@ -168,16 +169,29 @@ function MessageBody(props: {
             </text>
             <Show when={tool.expanded && tool.diff}>
               {(diff: () => string) => (
-                <diff
-                  diff={diff()}
-                  view="unified"
-                  wrapMode="char"
-                  showLineNumbers
-                  height={Math.min(18, Math.max(5, diff().split("\n").length + 1))}
-                  width="100%"
-                  addedBg="#173b2a"
-                  removedBg="#4a2026"
-                />
+                <box flexDirection="column" width="100%">
+                  <For each={splitDiffPreview(diff())}>
+                    {(section, index) => (
+                      <>
+                        <Show when={index() > 0}>
+                          <text fg={COLORS.border} height={1} wrapMode="none" truncate>
+                            {"─".repeat(120)}
+                          </text>
+                        </Show>
+                        <diff
+                          diff={section.diff}
+                          view="unified"
+                          wrapMode="char"
+                          showLineNumbers
+                          height={diffSectionHeight(section)}
+                          width="100%"
+                          addedBg="#173b2a"
+                          removedBg="#4a2026"
+                        />
+                      </>
+                    )}
+                  </For>
+                </box>
               )}
             </Show>
             <Show when={tool.expanded && tool.output && !tool.diff}>

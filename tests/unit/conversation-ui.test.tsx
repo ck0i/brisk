@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ScrollBoxRenderable, type BaseRenderable } from "@opentui/core";
+import { ScrollBoxRenderable, TextAttributes, type BaseRenderable } from "@opentui/core";
 import { testRender } from "@opentui/solid";
 
 import { UiAuthController } from "../../src/ui/auth-controller.ts";
@@ -27,6 +27,44 @@ test("conversation labels use User and Agent", async () => {
     expect(frame).toContain("Agent");
     expect(frame).not.toContain("you");
     expect(frame).not.toContain("assistant");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("streaming assistant markdown hides markers and applies emphasis styles", async () => {
+  const store = new UiStore("fixture");
+  store.addMessage({
+    id: "markdown",
+    role: "assistant",
+    content: "",
+    streaming: true,
+  });
+  const setup = await renderRoot(store);
+  try {
+    await setup.renderOnce();
+    for (const chunk of ["This is ", "**bold**", ", *italic*, and `code`."]) {
+      store.appendMessageText("markdown", chunk);
+    }
+    await Bun.sleep(500);
+
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("This is bold, italic, and code.");
+    expect(frame).not.toContain("**bold**");
+    expect(frame).not.toContain("*italic*");
+    expect(frame).not.toContain("`code`");
+    const boldSpan = setup
+      .captureSpans()
+      .lines.flatMap((line) => line.spans)
+      .find((span) => span.text === "bold");
+    expect(boldSpan).toBeDefined();
+    expect((boldSpan?.attributes ?? 0) & TextAttributes.BOLD).toBe(TextAttributes.BOLD);
+
+    store.replaceMessage("markdown", { streaming: false });
+    await Bun.sleep(500);
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("This is bold, italic, and code.");
+    expect(frame).not.toContain("**bold**");
   } finally {
     setup.renderer.destroy();
   }

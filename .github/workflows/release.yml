@@ -15,7 +15,7 @@ concurrency:
 jobs:
   release:
     name: Build and publish
-    environment: npm
+    environment: main
     runs-on: ubuntu-latest
     steps:
       - name: Require maintainer permission

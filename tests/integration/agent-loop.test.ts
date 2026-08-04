@@ -41,6 +41,43 @@ describe("AgentLoop streaming and tools", () => {
     expect(loop.usage).toEqual({ inputTokens: 13, outputTokens: 7, cost: 0.1 });
   });
 
+  test("supplies the built-in prompt and refreshes its exact tool catalog", async () => {
+    const provider = new FakeProvider([{ text: "first" }, { text: "second" }]);
+    const tools = new ToolRegistry().register<ValueArguments>({
+      name: "first_tool",
+      description: "the first tool",
+      inputSchema: valueSchema,
+      parse: parseValueArguments,
+      execute: (input) => ({ content: input.value }),
+    });
+    const loop = new AgentLoop({
+      provider,
+      tools,
+      model: "fake",
+      additionalSystemPrompt: ["user AGENTS", "repository AGENTS"],
+    });
+
+    await loop.submit("one");
+    tools.register<ValueArguments>({
+      name: "second_tool",
+      description: "the second tool",
+      inputSchema: valueSchema,
+      parse: parseValueArguments,
+      execute: (input) => ({ content: input.value }),
+    });
+    await loop.submit("two");
+
+    expect(provider.requests[0]?.systemPrompt[0]).toContain("The user is your sole principal");
+    expect(provider.requests[0]?.systemPrompt.slice(1, 3)).toEqual([
+      "user AGENTS",
+      "repository AGENTS",
+    ]);
+    expect(provider.requests[0]?.systemPrompt[3]).toContain("Session role: root agent");
+    expect(provider.requests[0]?.systemPrompt[4]).toContain('"name":"first_tool"');
+    expect(provider.requests[0]?.systemPrompt[4]).not.toContain('"name":"second_tool"');
+    expect(provider.requests[1]?.systemPrompt[4]).toContain('"name":"second_tool"');
+  });
+
   test("assembles partial arguments and streams thinking, text, tools, and usage", async () => {
     const provider = new FakeProvider([
       {

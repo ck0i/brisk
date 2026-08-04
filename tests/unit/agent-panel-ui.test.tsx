@@ -38,8 +38,7 @@ test("agent strip and panel navigate, cancel, resize, and restore composer focus
     });
 
     const stripFrame = await setup.waitForFrame((frame) => frame.includes("agents ·"));
-    expect(stripFrame).toContain("◐ research child [running · research · anthropic/claude-sonnet");
-    expect(stripFrame).toContain("/agents");
+    expect(stripFrame).toContain("/agents · 2 children · ◐ 1 running · ! 1 blocked");
 
     expect(store.openAgents()).toBe(true);
     const listFrame = await setup.waitForFrame((frame) => frame.includes("Agents · 2 children"));
@@ -84,6 +83,36 @@ test("agent strip and panel navigate, cancel, resize, and restore composer focus
     store.removeAgent("patch");
     await setup.flush();
     expect(setup.captureCharFrame()).not.toContain("agents ·");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("agent panel keeps long task descriptions inside fixed rows", async () => {
+  const store = new UiStore("fixture");
+  const setup = await testRender(
+    () => <Root store={store} onSubmit={() => true} onAbort={() => {}} onExit={() => {}} />,
+    { width: 88, height: 22 },
+  );
+
+  try {
+    for (let index = 0; index < 4; index += 1) {
+      store.upsertAgent({
+        ...agent(`task-${index}`, index === 1 ? "failed" : "completed"),
+        description: `task-${index} ${"very long child task detail ".repeat(12)}TAIL-${index}`,
+        provider: "openai",
+        model: "gpt-5.4",
+      });
+    }
+    expect(store.openAgents()).toBe(true);
+    const frame = await setup.waitForFrame((value) => value.includes("Agents · 4 children"));
+
+    for (let index = 0; index < 4; index += 1) {
+      expect(frame).toContain(`task-${index}`);
+      expect(frame).not.toContain(`TAIL-${index}`);
+    }
+    expect(frame).toContain("failed · research · openai/gpt-5.4");
+    expect(frame).toContain("Enter detail · C cancel · Esc close");
   } finally {
     setup.renderer.destroy();
   }

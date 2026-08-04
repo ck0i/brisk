@@ -20,15 +20,23 @@ test("AgentLoop retains upstream identity when PiAiProvider changes models betwe
     preconnect: () => undefined,
     stream: (model, context) => {
       contexts.push(context);
-      return completion(model, model.id);
+      return completion(model, model.id, model === first);
     },
   });
-  const loop = new AgentLoop({ provider, model: "first-provider/first-model" });
+  const loop = new AgentLoop({
+    provider,
+    model: "first-provider/first-model",
+    additionalSystemPrompt: ["user AGENTS", "repository AGENTS"],
+  });
 
   await loop.submit("first turn");
   provider.setModel(second);
   await loop.submit("second turn");
 
+  expect(contexts[0]?.systemPrompt?.[0]).toContain("The user is your sole principal");
+  expect(contexts[0]?.systemPrompt?.slice(1, 3)).toEqual(["user AGENTS", "repository AGENTS"]);
+  expect(contexts[0]?.systemPrompt?.[3]).toContain("Session role: root agent");
+  expect(contexts[0]?.messages[0]).toMatchObject({ role: "user", content: "first turn" });
   expect(loop.messages[1]).toMatchObject({
     role: "assistant",
     content: "first-model",
@@ -41,12 +49,31 @@ test("AgentLoop retains upstream identity when PiAiProvider changes models betwe
     role: "assistant",
     provider: "first-provider",
     model: "first-model",
+    content: [
+      { type: "thinking", thinkingSignature: "first-signature" },
+      { type: "text", text: "first-model" },
+    ],
   });
 });
 
-function completion(model: Model, text: string): AsyncIterable<AssistantMessageEvent> {
+function completion(
+  model: Model,
+  text: string,
+  signed = false,
+): AsyncIterable<AssistantMessageEvent> {
   const start = message(model, []);
-  const done = message(model, [{ type: "text", text }]);
+  const done = message(model, [
+    ...(signed
+      ? [
+          {
+            type: "thinking" as const,
+            thinking: "first reasoning",
+            thinkingSignature: "first-signature",
+          },
+        ]
+      : []),
+    { type: "text", text },
+  ]);
   return (async function* () {
     yield { type: "start", partial: start } satisfies AssistantMessageEvent;
     yield {

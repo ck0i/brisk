@@ -17,9 +17,19 @@ import {
   translateContext,
   type CredentialResolver,
 } from "../../src/providers/pi-ai-provider.ts";
+import { resolvePromptCacheRetention } from "../../src/providers/prompt-cache.ts";
 import type { ProviderRequest } from "../../src/providers/types.ts";
 
 const model = makeModel("provider-one", "model-one", "https://one.test/v1");
+
+describe("prompt cache policy", () => {
+  test("defaults to aggressive retention and honors Pi's environment override", () => {
+    expect(resolvePromptCacheRetention({})).toBe("long");
+    expect(resolvePromptCacheRetention({ PI_CACHE_RETENTION: "short" })).toBe("short");
+    expect(resolvePromptCacheRetention({ PI_CACHE_RETENTION: "none" })).toBe("none");
+    expect(resolvePromptCacheRetention({ PI_CACHE_RETENTION: "invalid" })).toBe("long");
+  });
+});
 
 describe("pi-ai message and tool translation", () => {
   test("builds exact timestamped pi-ai history with ordered assistant blocks", () => {
@@ -68,8 +78,10 @@ describe("pi-ai message and tool translation", () => {
       ],
       model,
       100,
+      ["brisk base", "tool catalog"],
     );
 
+    expect(context.systemPrompt).toEqual(["brisk base", "tool catalog"]);
     expect(context.messages[0]).toEqual({ role: "user", content: "inspect", timestamp: 97 });
     const assistant = context.messages[1];
     expect(assistant?.role).toBe("assistant");
@@ -105,6 +117,49 @@ describe("pi-ai message and tool translation", () => {
     expect(context.tools?.[0]).toMatchObject({
       name: "read",
       parameters: { type: "object", required: ["path"] },
+    });
+  });
+
+  test("replays provider-native blocks and signatures without reshaping the cached prefix", () => {
+    const context = translateContext(
+      [
+        {
+          role: "assistant",
+          content: "answer",
+          thinking: "reasoning",
+          toolCalls: [],
+          provider: "anthropic",
+          api: "anthropic-messages",
+          model: "claude-test",
+          providerReplay: {
+            content: [
+              {
+                type: "thinking",
+                thinking: "reasoning",
+                thinkingSignature: "signed-thinking",
+              },
+              { type: "text", text: "answer", textSignature: "signed-text" },
+            ],
+            responseId: "response-one",
+            stopReason: "stop",
+          },
+        },
+      ],
+      [],
+      model,
+      100,
+    );
+
+    expect(context.messages[0]).toMatchObject({
+      role: "assistant",
+      provider: "anthropic",
+      api: "anthropic-messages",
+      model: "claude-test",
+      responseId: "response-one",
+      content: [
+        { type: "thinking", thinkingSignature: "signed-thinking" },
+        { type: "text", textSignature: "signed-text" },
+      ],
     });
   });
 
@@ -190,6 +245,7 @@ describe("PiAiProvider stream adapter", () => {
       model,
       auth,
       sessionId: "session-test",
+      cacheRetention: "long",
       preconnect: (url) => warmed.push(url),
       stream: (selected, context, options) => {
         captures.push({ model: selected, context, options });
@@ -212,7 +268,7 @@ describe("PiAiProvider stream adapter", () => {
       "usage",
       "response_end",
     ]);
-    expect(second.at(-1)).toEqual({ type: "response_end", stopReason: "stop" });
+    expect(second.at(-1)).toMatchObject({ type: "response_end", stopReason: "stop" });
     expect(authCalls).toEqual([
       { provider: "provider-one", sessionId: "session-test", modelId: "model-one" },
       { provider: "provider-two", sessionId: "session-test", modelId: "model-two" },
@@ -220,12 +276,46 @@ describe("PiAiProvider stream adapter", () => {
     expect(captures[0]?.options).toMatchObject({
       apiKey,
       sessionId: "session-test",
+      cacheRetention: "long",
+      statefulResponses: false,
       maxTokens: 42,
     });
+    expect(captures[0]?.options.providerSessionState).toBeInstanceOf(Map);
+    expect(captures[0]?.context.systemPrompt).toEqual(["test system prompt"]);
+    expect(captures[1]?.options.providerSessionState).toBe(
+      captures[0]?.options.providerSessionState,
+    );
     expect(captures[1]?.model.id).toBe("model-two");
     expect(provider.model).toBe(secondModel);
     expect(warmed).toEqual(["https://one.test/v1", "https://two.test/v1"]);
     expect(JSON.stringify(first)).not.toContain(apiKey);
+  });
+
+  test("closes provider-owned session state when the logical session changes", async () => {
+    let state: Map<string, { close(): void }> | undefined;
+    let closes = 0;
+    const provider = new PiAiProvider({
+      model,
+      auth: {
+        async getApiKey() {
+          return "BRISK_TEST_STATE_KEY";
+        },
+      },
+      sessionId: "session-one",
+      preconnect: () => undefined,
+      stream: (selected, _context, options) => {
+        state = options.providerSessionState;
+        state?.set("test", { close: () => (closes += 1) });
+        return successfulStream(selected);
+      },
+    });
+
+    await collect(provider, request("model-one"));
+    provider.setSessionId("session-two");
+    expect(closes).toBe(1);
+    expect(state?.size).toBe(0);
+    provider.close();
+    expect(closes).toBe(1);
   });
 
   test("converts thrown upstream failures to redacted normalized error events", async () => {
@@ -338,6 +428,7 @@ function makeModel(
 
 function request(modelId: string): ProviderRequest {
   return {
+    systemPrompt: ["test system prompt"],
     messages: [{ role: "user", content: "hello" }],
     tools: [],
     signal: new AbortController().signal,

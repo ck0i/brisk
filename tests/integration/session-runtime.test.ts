@@ -51,6 +51,24 @@ describe("SessionRuntime", () => {
     await resumed.close();
   });
 
+  test("remembers the last model when starting a fresh session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-session-model-"));
+    roots.push(root);
+    const options = {
+      sessionsDir: join(root, "sessions"),
+      sessionIndexPath: join(root, "index.json"),
+      artifactsDir: join(root, "artifacts"),
+      workspace: root,
+    } as const;
+    const first = await SessionRuntime.initialize(options);
+    await first.recordModelChange("openai-codex", "gpt-5.3-codex-spark");
+    await first.close();
+
+    const fresh = await SessionRuntime.initialize(options);
+    expect(fresh.selectedModelSpecifier).toBe("openai-codex/gpt-5.3-codex-spark");
+    await fresh.close();
+  });
+
   test("creates and switches indexed sessions while enforcing workspace association", async () => {
     const root = await mkdtemp(join(tmpdir(), "brisk-session-switch-"));
     roots.push(root);

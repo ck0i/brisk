@@ -108,11 +108,10 @@ describe("AuthService", () => {
   test("initializes secure storage, orchestrates OAuth callbacks, status, and logout", async () => {
     const fake = new FakeAuthStorage();
     const { service, dbPath, parent } = await initialize(fake);
-    const progress: string[] = [];
     const opened: string[] = [];
-
-    const identity = await service.login("anthropic", {
-      openBrowser(info) {
+    const prompter = {
+      progressMessages: [] as string[],
+      openBrowser(info: OAuthAuthInfo) {
         opened.push(info.url);
       },
       async prompt() {
@@ -121,10 +120,12 @@ describe("AuthService", () => {
       async manualCode() {
         return "BRISK_TEST_MANUAL_CODE";
       },
-      progress(message) {
-        progress.push(message);
+      progress(message: string) {
+        this.progressMessages.push(message);
       },
-    });
+    };
+
+    const identity = await service.login("anthropic", prompter);
 
     expect(identity).toEqual({
       type: "oauth",
@@ -132,7 +133,7 @@ describe("AuthService", () => {
       accountId: "account-test",
     });
     expect(opened).toHaveLength(1);
-    expect(progress).toEqual(["waiting"]);
+    expect(prompter.progressMessages).toEqual(["waiting"]);
     expect(fake.sawManualCode).toBe(true);
     expect(service.hasAuth("anthropic")).toBe(true);
     expect(service.listProviderStatus(["anthropic"])).toEqual([

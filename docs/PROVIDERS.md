@@ -1,6 +1,14 @@
 # Providers and authentication
 
-Brisk delegates provider transports, OAuth protocols, token refresh, and credential selection to `@oh-my-pi/pi-ai`. Brisk keeps its own agent loop, tools, sessions, and UI.
+Brisk delegates provider transports, OAuth protocols, token refresh, credential selection, and provider-specific prompt-cache wire formats to `@oh-my-pi/pi-ai`. Brisk keeps its own agent loop, tools, sessions, and UI.
+
+## Prompt caching
+
+Brisk enables provider-side prompt caching automatically. It sends one stable Brisk session ID as the `pi-ai` session/cache identity on every ordinary turn and preserves provider-native response blocks, reasoning signatures, response IDs, and replay payloads so append-only history remains byte-shape stable. New sessions and child agents receive distinct identities; resumed sessions reuse their persisted identity.
+
+Brisk requests `long` retention by default where the selected provider supports it. Set `PI_CACHE_RETENTION=short` for the provider's shorter lifetime or `PI_CACHE_RETENTION=none` to disable cache keys and explicit cache markers. `@oh-my-pi/pi-ai` maps this policy to each provider, including Anthropic `cache_control`, OpenAI `prompt_cache_key`/retention and affinity headers, supported Bedrock cache points, and compatible gateway controls. Unsupported providers ignore the policy.
+
+Caches remain provider-side; Brisk does not store prompt contents in its cache directory. Brisk only persists session history and provider-reported cache-read/cache-write usage. Local Snapcompact passes do not call a model, so they cannot pollute the conversation cache identity; the rewritten post-compaction prompt naturally establishes a new prefix under the same logical session.
 
 ## Credential storage
 

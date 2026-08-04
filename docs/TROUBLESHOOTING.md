@@ -111,7 +111,7 @@ Unknown fields are warnings and are ignored. `/reload` retains the previous vali
 
 ### Project settings appear ignored
 
-Project configuration must be exactly `<workspace>/.brisk/config.jsonc`, where the workspace is the directory passed to Brisk. CLI overrides win over project/global values. Objects merge recursively, but arrays replace lower-layer arrays. `/settings` prints the global path, not the project path.
+Project configuration must be exactly `<workspace>/.brisk/config.jsonc`, where the workspace is the directory passed to Brisk. CLI overrides win over project/global values. Objects merge recursively, but arrays replace lower-layer arrays. `/settings` edits the global layer interactively; a project or CLI override can therefore keep the effective value different.
 
 `compaction.enabled`, `ui.theme`, and `ui.showThinking` are accepted but reserved in 0.1.0; see [Configuration](CONFIGURATION.md) for current behavior.
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { JsonValue, Message } from "../../src/core/messages.ts";
-import { CheckpointStore } from "../../src/subagents/checkpoint.ts";
+import { CheckpointStore, withoutPendingToolTurn } from "../../src/subagents/checkpoint.ts";
 import {
   parseCompleteTaskInput,
   parseTaskInput,
@@ -18,6 +18,35 @@ afterEach(async () => {
 });
 
 describe("CheckpointStore", () => {
+  test("removes incomplete delegating tool turns before a child branch", () => {
+    const prefix: Message[] = [{ role: "user", content: "delegate" }];
+    const assistant: Message = {
+      role: "assistant",
+      content: "delegating",
+      toolCalls: [
+        { id: "task-one", name: "task", arguments: '{"description":"one"}' },
+        { id: "task-two", name: "task", arguments: '{"description":"two"}' },
+      ],
+    };
+    const firstResult: Message = {
+      role: "tool",
+      toolCallId: "task-one",
+      name: "task",
+      content: "one complete",
+    };
+    const secondResult: Message = {
+      role: "tool",
+      toolCallId: "task-two",
+      name: "task",
+      content: "two complete",
+    };
+
+    expect(withoutPendingToolTurn([...prefix, assistant])).toEqual(prefix);
+    expect(withoutPendingToolTurn([...prefix, assistant, firstResult])).toEqual(prefix);
+    const complete = [...prefix, assistant, firstResult, secondResult];
+    expect(withoutPendingToolTurn(complete)).toBe(complete);
+  });
+
   test("hashes canonical content, freezes one snapshot, and shares object identity", async () => {
     const store = new CheckpointStore();
     const source: Message[] = [

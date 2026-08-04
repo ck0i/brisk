@@ -52,7 +52,13 @@ describe("FakeProvider", () => {
 
 async function collect(provider: FakeProvider, signal: AbortSignal): Promise<ProviderEvent[]> {
   const events: ProviderEvent[] = [];
-  for await (const event of provider.stream({ messages: [], tools: [], signal, model: "fake" })) {
+  for await (const event of provider.stream({
+    systemPrompt: ["test"],
+    messages: [],
+    tools: [],
+    signal,
+    model: "fake",
+  })) {
     events.push(event);
   }
   return events;

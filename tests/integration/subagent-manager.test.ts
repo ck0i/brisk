@@ -40,6 +40,7 @@ describe("SubagentManager execution", () => {
       },
       defaultModel: "default-model",
       maxConcurrency: 3,
+      additionalSystemPrompt: ["inherited AGENTS instructions"],
       createChildSessionId: () => `child-${++nextId}`,
       providerFactory(context) {
         const fake = new FakeProvider([
@@ -76,7 +77,9 @@ describe("SubagentManager execution", () => {
       "completed",
       "completed",
     ]);
+    expect(sessions[0]?.model).toBe("default-model");
     expect(sessions[1]?.model).toBe("patch-model");
+    expect(sessions[2]?.model).toBe("default-model");
     expect(sessions[2]?.maxOutputTokens).toBe(77);
     expect(providers.get("child-1")?.requests[0]?.maxOutputTokens).toBeUndefined();
     expect(providers.get("child-3")?.requests[0]?.maxOutputTokens).toBe(77);
@@ -87,6 +90,11 @@ describe("SubagentManager execution", () => {
     expect(manager.getCheckpoint("child-3")).toBe(sharedCheckpoint);
     for (const childSessionId of ["child-1", "child-2", "child-3"]) {
       const provider = providers.get(childSessionId);
+      expect(provider?.requests[0]?.systemPrompt[1]).toBe("inherited AGENTS instructions");
+      expect(provider?.requests[0]?.systemPrompt[2]).toContain(
+        "Session role: delegated child agent",
+      );
+      expect(provider?.requests[0]?.systemPrompt[2]).toContain("inherited parent checkpoint");
       expect(provider?.requests[0]?.messages.slice(0, prefix.length)).toEqual([...prefix]);
       expect(provider?.requests[0]?.messages[prefix.length]).toEqual({
         role: "user",
@@ -278,6 +286,10 @@ describe("SubagentManager orchestration controls", () => {
       "complete_task",
     ]);
     expect(providers[1]?.requests[0]?.tools.map((tool) => tool.name)).toEqual(["complete_task"]);
+    expect(providers[0]?.requests[0]?.systemPrompt.at(-2)).toContain("task tool is available");
+    expect(providers[1]?.requests[0]?.systemPrompt.at(-2)).toContain(
+      "you are that successfully spawned subagent",
+    );
     expect(blocked.status).toBe("blocked");
     expect(providerCalls).toBe(2);
     expect(manager.get("depth-3")?.transcript).toEqual([]);
@@ -308,7 +320,8 @@ describe("SubagentManager orchestration controls", () => {
           },
         }),
     });
-    const tools = new ToolRegistry().register(createTaskTool(manager));
+    // task has its own long-running deadline and must not inherit the registry's short default.
+    const tools = new ToolRegistry(5).register(createTaskTool(manager));
     const parent = new AgentLoop({
       model: "parent-model",
       tools,

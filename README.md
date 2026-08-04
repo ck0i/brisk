@@ -8,7 +8,7 @@ Brisk is a fast, provider-agnostic terminal coding harness built with Bun, Solid
 - A supported terminal on Linux, macOS, or Windows
 - Provider credentials, unless a keyless local OpenAI-compatible endpoint is configured
 
-Standalone release directories include Bun and the native runtime assets. Keep the directory intact rather than moving only the executable.
+Standalone release directories include Bun and the native runtime assets. Keep each release directory intact; do not move only the executable.
 
 ## Install and uninstall
 
@@ -73,12 +73,12 @@ With no configured or available model, the UI still opens and directs you to `/l
 Brisk supports three credential paths:
 
 1. **Environment API keys**: set the provider's variable in the environment that launches Brisk. Common mappings are `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GEMINI_API_KEY`. OAuth-token overrides include `ANTHROPIC_OAUTH_TOKEN`, `OPENAI_CODEX_OAUTH_TOKEN`, and `CURSOR_ACCESS_TOKEN`. `brisk auth status` reports recognized configured providers and the environment-variable source without printing values.
-2. **OAuth**: `brisk auth login [provider]` supports Brisk's built-in `anthropic`, `openai-codex`, `google-antigravity`, and `cursor` flows. `/login [provider]` performs the same operation from the TUI while temporarily suspending rendering. Stored grants live in the private Brisk auth database and are refreshed upstream.
+2. **OAuth**: `brisk auth login [provider]` supports Brisk's built-in `anthropic`, `openai-codex`, `google-antigravity`, and `cursor` flows. `/login [provider]` performs the same operation inside the mounted TUI. Stored grants live in the private Brisk auth database and are refreshed upstream.
 3. **Custom OpenAI-compatible endpoints**: define a provider with `baseUrl`, models, and either `keyless: true` or `apiKeyEnv: "VARIABLE_NAME"`. Secret values are rejected in configuration.
 
 OAuth is distinct from ordinary provider API billing. For example, `openai-codex` uses ChatGPT/Codex OAuth, while `openai/...` uses `OPENAI_API_KEY`. Some OAuth flows require a pasted authorization code or callback URL when the browser callback cannot complete automatically. Real grants must be manually verified against provider accounts before release; automated tests do not prove provider account access.
 
-See [Providers and authentication](docs/PROVIDERS.md) for flow-specific details and the manual verification checklist. See [Configuration](docs/CONFIGURATION.md) for custom endpoint examples.
+Provider-side prompt caching is automatic and uses the persisted Brisk session ID for stable cache affinity. Brisk requests long retention by default; set `PI_CACHE_RETENTION=short` or `PI_CACHE_RETENTION=none` to shorten or disable it. See [Providers and authentication](docs/PROVIDERS.md) for provider mappings and cache behavior. See [Configuration](docs/CONFIGURATION.md) for custom endpoint examples.
 
 ## CLI
 
@@ -111,14 +111,14 @@ Interactive options:
 | ----------------------------------------- | ---------------------------------------------------------------------------------------- |
 | `/help`                                   | Show keys and commands.                                                                  |
 | `/model [provider/model]`                 | Select from available models or select the exact model.                                  |
-| `/login [provider]`, `/logout [provider]` | Manage an OAuth grant while the TUI is suspended.                                        |
+| `/login [provider]`, `/logout [provider]` | Manage an OAuth grant inside the mounted TUI.                                            |
 | `/new`                                    | Start a new session in the current workspace.                                            |
 | `/sessions`, `/resume`                    | Open the workspace session picker.                                                       |
 | `/compact`                                | Compact context immediately when the agent is idle.                                      |
 | `/context`                                | Show token estimates, threshold, retained messages, and compaction mode.                 |
 | `/agents`                                 | Open child-agent list/detail state and transcripts.                                      |
 | `/cost`                                   | Show recorded session cost.                                                              |
-| `/settings`                               | Show the global configuration path.                                                      |
+| `/settings`                               | Interactively edit and apply global runtime settings.                                    |
 | `/reload`                                 | Reload JSONC configuration. Provider-definition changes take effect on the next session. |
 | `/clear`                                  | Clear visible UI messages without deleting the persisted transcript.                     |
 | `/quit`                                   | Exit.                                                                                    |
@@ -137,6 +137,12 @@ Interactive options:
 | `Enter`/`Esc`                                       | Accept/cancel a picker; open/back in the agent panel.                                                |
 | `C`                                                 | Cancel the selected child agent.                                                                     |
 | `A`, `S`, `D`                                       | Approve once, approve equivalent operations for the session, or deny an approval. `Esc` also denies. |
+
+## AGENTS.md instructions
+
+Brisk injects discovered `AGENTS.md` files as system context on the first provider request and every continuation, including child agents. It loads user defaults from the platform configuration directory's `AGENTS.md`, then recursively discovers repository `AGENTS.md` files from the selected workspace downward. Version-control metadata and common generated/dependency directories are not scanned. `/reload` discovers the files again.
+
+Repository instructions take precedence over user-level defaults. A repository `AGENTS.md` applies to its containing directory and descendants; for a target file, a more deeply nested applicable file takes precedence over a shallower one. Unrelated directory scopes do not affect each other. A direct request in the conversation remains authoritative.
 
 ## Coding tools and Hashline
 
@@ -166,7 +172,7 @@ Brisk estimates text, image, tool, and usage pressure against the selected model
 
 ## Subagents
 
-The parent model can call `task` for `research` or `patch` work. Children share one immutable, content-addressed checkpoint of prepared parent context, but each has an isolated provider continuation and persisted child session. Concurrency and depth are bounded by configuration.
+The parent model can call `task` for `research` or `patch` work. Children share one immutable, content-addressed checkpoint of prepared parent context, but each has an isolated provider continuation and persisted child session. Concurrency and depth are bounded by configuration. `defaultSubtaskModel` selects the child model when a task omits its model; otherwise children inherit the active parent model. Per-task model selection remains available only when a particular task needs an override.
 
 Research children receive read/search/find/list/bash tools under the normal permission policy. Patch children edit an in-memory overlay, never the real workspace. Their deterministic unified diff returns to the parent; it is not silently applied. `/agents` displays queued, running, completed, blocked, failed, and cancelled children with model, mode, token usage, and transcript detail.
 

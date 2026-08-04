@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,6 +10,7 @@ import {
   parseConfigText,
   projectConfigPath,
   resolveConfigPaths,
+  writeConfigValue,
   type ConfigPaths,
 } from "../../src/config/index.ts";
 
@@ -187,6 +188,41 @@ describe("configuration", () => {
       expect(loaded.config.providers.local?.models.map((model) => model.id)).toEqual([
         "project-model",
       ]);
+    } finally {
+      await destroyLayout(layout);
+    }
+  });
+
+  test("persists one global setting atomically while preserving JSONC", async () => {
+    const layout = await createLayout();
+    try {
+      await writeGlobal(
+        layout,
+        `{
+          "permissionMode": "safe",
+          "ui": {
+            // retain this comment
+            "theme": "default",
+          },
+        }`,
+      );
+
+      await writeConfigValue(
+        layout.paths.globalConfigPath,
+        ["defaultSubtaskModel"],
+        "openai-codex/gpt-5.6-luna",
+      );
+      await writeConfigValue(layout.paths.globalConfigPath, ["ui", "showThinking"], true);
+      await writeConfigValue(layout.paths.globalConfigPath, ["permissionMode"], undefined);
+
+      const text = await readFile(layout.paths.globalConfigPath, "utf8");
+      expect(text).toContain("// retain this comment");
+      expect(text).not.toContain('"permissionMode"');
+      expect((await stat(layout.paths.globalConfigPath)).mode & 0o777).toBe(0o600);
+      const loaded = await loadConfig({ paths: layout.paths });
+      expect(loaded.config.defaultSubtaskModel).toBe("openai-codex/gpt-5.6-luna");
+      expect(loaded.config.ui.showThinking).toBe(true);
+      expect(loaded.config.permissionMode).toBe("write");
     } finally {
       await destroyLayout(layout);
     }

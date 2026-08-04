@@ -8,6 +8,7 @@ import { AgentLoop } from "../../src/core/agent-loop.ts";
 import { FakeProvider } from "../../src/providers/fake-provider.ts";
 import { RuntimeSubagents } from "../../src/runtime/subagent-runtime.ts";
 import { SessionRuntime } from "../../src/runtime/session-runtime.ts";
+import { SUBAGENT_TASK_TIMEOUT_MS } from "../../src/subagents/task-tool.ts";
 import { PermissionManager, type ApprovalHandler } from "../../src/tools/approval.ts";
 import { ToolRegistry } from "../../src/tools/registry.ts";
 import { UiStore } from "../../src/ui/state.ts";
@@ -33,10 +34,24 @@ describe("RuntimeSubagents", () => {
       selectedProvider: "fake",
       selectedModel: "parent",
     });
+    const parentPrefix = { role: "user" as const, content: "shared parent prefix" };
     const parentLoop = new AgentLoop({
       provider: new FakeProvider([{ text: "unused" }]),
       model: "fake/parent",
-      initialMessages: [{ role: "user", content: "shared parent prefix" }],
+      initialMessages: [
+        parentPrefix,
+        {
+          role: "assistant",
+          content: "delegating",
+          toolCalls: [
+            {
+              id: "pending-task",
+              name: "task",
+              arguments: '{"description":"Inspect parser"}',
+            },
+          ],
+        },
+      ],
     });
     const context = new ContextManager({
       model: {
@@ -70,6 +85,7 @@ describe("RuntimeSubagents", () => {
       session,
       store,
     });
+    expect(runtime.taskTool.timeoutMs).toBe(SUBAGENT_TASK_TIMEOUT_MS);
     const registry = new ToolRegistry().register(runtime.taskTool);
     const progress: Array<{ status: string; transcriptLength: number }> = [];
     const unsubscribe = store.subscribe((snapshot) => {
@@ -105,7 +121,7 @@ describe("RuntimeSubagents", () => {
       "Inspect parser",
       "Completed child task in research mode.",
     ]);
-    expect(runtime.manager.getCheckpoint(childId)?.messages).toEqual(parentLoop.messages);
+    expect(runtime.manager.getCheckpoint(childId)?.messages).toEqual([parentPrefix]);
     const child = await session.repository.open(childId);
     expect(child.messages.map((message) => message.content)).toEqual([
       "Inspect parser",
@@ -120,6 +136,8 @@ describe("RuntimeSubagents", () => {
       childSessionId: childId,
       status: "completed",
       mode: "research",
+      provider: "fake",
+      model: "child",
       transcript: [
         { role: "user", content: "Inspect parser" },
         { role: "assistant", content: "Completed child task in research mode." },

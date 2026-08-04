@@ -115,7 +115,15 @@ describe("ProviderService", () => {
           type: "openai-compatible",
           baseUrl: "https://gateway.invalid/v1",
           keyless: true,
-          models: [modelFixture("namespace/model")],
+          models: [
+            {
+              ...modelFixture("namespace/model"),
+              compat: {
+                cacheControlFormat: "anthropic" as const,
+                supportsLongPromptCacheRetention: true,
+              },
+            },
+          ],
         },
       },
     }).providers;
@@ -129,6 +137,10 @@ describe("ProviderService", () => {
         input: ["text"],
         supportsTools: true,
         keyless: true,
+        compat: {
+          cacheControlFormat: "anthropic",
+          supportsLongPromptCacheRetention: true,
+        },
       },
     ]);
     expect(splitModelSpecifier("gateway/namespace/model")).toEqual({

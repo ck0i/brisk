@@ -98,7 +98,14 @@ describe("pi-ai event normalization", () => {
         cost: 0.35,
       },
     });
-    expect(normalized[7]).toEqual({ type: "response_end", stopReason: "tool_call" });
+    expect(normalized[7]).toMatchObject({
+      type: "response_end",
+      stopReason: "tool_call",
+      providerReplay: {
+        content: toolPartial.content,
+        stopReason: "stop",
+      },
+    });
   });
 
   test("normalizes terminal errors and redacts explicit credentials", () => {

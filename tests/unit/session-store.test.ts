@@ -316,6 +316,56 @@ describe("session store", () => {
     }
   });
 
+  test("round-trips provider-native replay data used for prompt-cache-stable history", async () => {
+    const layout = await createLayout();
+    try {
+      const store = testStore(layout.sessionsDir, "provider-replay");
+      const metadata = await store.create(createOptions(layout, "provider-replay"));
+      await store.append(metadata.id, {
+        type: "assistant_message",
+        message: {
+          role: "assistant",
+          content: "answer",
+          thinking: "reasoning",
+          toolCalls: [],
+          provider: "anthropic",
+          api: "anthropic-messages",
+          model: "claude-test",
+          providerReplay: {
+            content: [
+              {
+                type: "thinking",
+                thinking: "reasoning",
+                thinkingSignature: "signed-thinking",
+              },
+              { type: "text", text: "answer" },
+            ],
+            responseId: "response-one",
+            providerPayload: {
+              type: "openaiResponsesHistory",
+              provider: "openai",
+              items: [],
+            },
+            stopReason: "stop",
+          },
+        },
+      });
+
+      const loaded = await store.open(metadata.id);
+      expect(loaded.messages[0]).toMatchObject({
+        role: "assistant",
+        providerReplay: {
+          content: [{ thinkingSignature: "signed-thinking" }, { text: "answer" }],
+          responseId: "response-one",
+          providerPayload: { type: "openaiResponsesHistory" },
+          stopReason: "stop",
+        },
+      });
+    } finally {
+      await rm(layout.root, { recursive: true, force: true });
+    }
+  });
+
   test("round-trips explicit user images and extended compaction metadata", async () => {
     const layout = await createLayout();
     try {

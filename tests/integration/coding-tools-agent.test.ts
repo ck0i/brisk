@@ -75,8 +75,10 @@ describe("native coding tool agent flow", () => {
     ]);
     const loop = new AgentLoop({ provider, tools, model: "fake/coding" });
     const streamed: string[] = [];
+    const previews: Array<{ summary: string; diff?: string }> = [];
     loop.subscribe((event) => {
       if (event.type === "tool_execution_output") streamed.push(event.delta);
+      if (event.type === "tool_execution_preview") previews.push(event.preview);
     });
 
     await loop.submit("Update the value and verify it");
@@ -96,6 +98,9 @@ describe("native coding tool agent flow", () => {
     expect(approval.requests.map((request) => request.toolName)).toEqual(["edit", "bash"]);
     expect(approval.requests[0]?.diff).toContain("-export const value = 1;");
     expect(approval.requests[0]?.diff).toContain("+export const value = 2;");
+    expect(previews).toHaveLength(1);
+    expect(previews[0]?.summary).toBe("src/value.ts");
+    expect(previews[0]?.diff).toContain("+export const value = 2;");
     expect(streamed.join("")).toContain("test passed");
     expect(loop.messages.at(-1)).toMatchObject({
       role: "assistant",

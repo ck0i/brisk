@@ -10,11 +10,12 @@ After first draw, the TUI `initialize` callback imports `InteractiveRuntime`. In
 
 1. Validate/canonicalize the workspace and create private platform directories.
 2. Merge configuration and show diagnostics.
-3. Create or resume the append-only session.
-4. Register coding tools and approval services.
-5. Initialize the fake provider or cached provider/model services.
-6. Select a model, install the agent loop/context manager, and enable subagents.
-7. Discover global/project extensions, request project approval, and install validated contributions.
+3. Discover user-level and recursively scoped repository `AGENTS.md` instructions.
+4. Create or resume the append-only session.
+5. Register coding tools and approval services.
+6. Initialize the fake provider or cached provider/model services.
+7. Select a model, install the agent loop/context manager, and enable subagents.
+8. Discover global/project extensions, request project approval, and install validated contributions.
 
 The UI remains the owner of terminal suspension, input, overlays, and shutdown. `InteractiveRuntime` coordinates services but does not render directly.
 
@@ -41,10 +42,11 @@ The UI remains the owner of terminal suspension, input, overlays, and shutdown. 
 For each response:
 
 1. The context lifecycle derives a provider-ready view from full history.
-2. The provider emits thinking, text, tool-call fragments, usage, completion, or normalized errors.
-3. The loop assembles exactly one assistant message and appends it to full history.
-4. `ToolRegistry` validates and executes tool calls. Parallel-safe calls may run concurrently while result ordering remains call ordering.
-5. Tool results are appended and another provider response runs until no tool calls remain.
+2. The loop prepends Brisk's stable system prompt, discovered `AGENTS.md` hierarchy, and current tool catalog. This occurs on the first request and every continuation; child loops inherit the same instruction blocks.
+3. The provider emits thinking, text, tool-call fragments, usage, completion, or normalized errors.
+4. The loop assembles exactly one assistant message and appends it to full history.
+5. `ToolRegistry` validates and executes tool calls. Parallel-safe calls may run concurrently while result ordering remains call ordering.
+6. Tool results are appended and another provider response runs until no tool calls remain.
 
 Retryable failures are retried only before response deltas. A context-overflow error can force one compaction and one retry. Cancellation is represented as an abort and published to subscribers. Tool execution failure rolls history back to before the assistant/tool-call batch so incomplete tool transactions are not retained as completed context.
 
@@ -71,7 +73,7 @@ The model record supplies provider/API/model identity, context window, output li
 - `HashlineWorkspace` owns snapshots and staged file transactions.
 - `PermissionManager` classifies requests and mediates UI approvals.
 
-Read paths are canonicalized; write/delete targets must remain inside the workspace. Hashline reads record normalized UTF-8 snapshots and line visibility. Edit/write operations mutate a virtual transactional filesystem first. Brisk creates a bounded unified diff, requests authorization, revalidates path topology and original bytes, then publishes. A multi-file publication failure attempts reverse-order rollback.
+Read paths are canonicalized; write/delete targets must remain inside the workspace. Hashline reads record normalized UTF-8 snapshots and line visibility. Edit/write operations mutate a virtual transactional filesystem first. Brisk creates a bounded unified diff, streams that exact staged preview into the owning conversation tool card, requests authorization, revalidates path topology and original bytes, then publishes. A multi-file publication failure attempts reverse-order rollback.
 
 Permission policy has two layers. Mode policy decides which ordinary operations are automatic; critical classification can still prompt or block. Approval-equivalence keys are narrow hashes over operation details. Known environment secret values are redacted before requests are rendered.
 
@@ -100,19 +102,20 @@ Snapcompact is dynamically imported only for a compaction pass. It summarizes th
 
 The parent `task` tool creates a child through `RuntimeSubagents` and `SubagentManager`:
 
-1. Prepare parent context once and capture it in `CheckpointStore` using a content-derived identity.
+1. Remove the in-flight delegating assistant/tool turn, prepare the completed parent prefix once, and capture it in `CheckpointStore` using a content-derived identity.
 2. Retain the immutable checkpoint for every child in that branch.
 3. Create an isolated provider/session and bounded child tool registry.
-4. Run an independent `AgentLoop` until `complete_task` or a fallback result.
-5. Persist the child reference and publish status/usage/transcript detail to `UiStore`.
+4. Give the child an explicit role block that marks the checkpoint as inherited background and the newest continuation message as its direct assignment.
+5. Run an independent `AgentLoop` until `complete_task` or a fallback result.
+6. Persist the child reference and publish status/usage/transcript detail to `UiStore`.
 
-A semaphore bounds concurrent children; depth limits block recursive task creation. Abort signals link parent and child cancellation.
+A semaphore bounds concurrent children; depth limits block recursive task creation. Abort signals link parent and child cancellation. A task-level model overrides `defaultSubtaskModel`; otherwise children use that configured model or inherit the active parent model.
 
 Research children use workspace read/search/find/list plus policy-controlled bash. Patch children use `PatchOverlayWorkspace`: reads resolve overlay-first, edits/writes update only virtual content, and finalization produces a deterministic unified diff. Moves are represented as delete/create. The child cannot publish overlay changes to the real workspace; the parent receives the patch as result data.
 
 ## UI state and concurrency
 
-`UiStore` is a framework-independent immutable state container. Solid components subscribe through a signal adapter. High-frequency provider/tool deltas are coalesced by the event batcher to avoid a render per token while preserving event order. Approval, picker, and child-agent overlays have exclusive key handling and promise-based controllers.
+`UiStore` is a framework-independent immutable state container. Solid components subscribe through a signal adapter. High-frequency provider/tool deltas are coalesced by the event batcher to avoid a render per token while preserving event order. Approval, picker, text-input, and child-agent overlays have exclusive key handling and promise-based controllers. `/settings` composes picker and validated text-input prompts, atomically updates the global JSONC layer, and rebuilds affected runtime services when the menu closes.
 
 Long-lived resources have explicit ownership:
 

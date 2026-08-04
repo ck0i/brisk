@@ -26,6 +26,8 @@ Unknown fields produce warnings and are ignored. Type/range errors, JSONC syntax
 
 Linux uses `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_CACHE_HOME` only when they are absolute; otherwise it uses the standard home-directory defaults. Windows similarly requires absolute `APPDATA` and `LOCALAPPDATA` values.
 
+The optional user-level instruction file is `AGENTS.md` beside the global `config.jsonc`: `${XDG_CONFIG_HOME:-~/.config}/brisk/AGENTS.md` on Linux, `~/Library/Application Support/Brisk/AGENTS.md` on macOS, and `%APPDATA%\Brisk\AGENTS.md` on Windows. Brisk injects it as a fallback instruction block. Applicable `<workspace>/**/AGENTS.md` files have higher precedence, with deeper files overriding shallower files for their directory subtree. Discovery runs at startup and `/reload`, before the next conversation context is sent to the provider.
+
 Related state locations:
 
 | State                   | Linux                                    | macOS                                 | Windows                      |
@@ -47,6 +49,9 @@ Brisk creates private data directories with mode `0700` and sensitive files with
 {
   // provider/model; omit to select interactively
   "defaultModel": "anthropic/claude-sonnet-4-5",
+
+  // optional child default; omit to inherit the active parent model
+  "defaultSubtaskModel": "openai-codex/gpt-5.6-luna",
 
   // safe | write | yolo
   "permissionMode": "write",
@@ -92,6 +97,7 @@ Brisk creates private data directories with mode `0700` and sensitive files with
 ### Model and permissions
 
 - `defaultModel`: non-empty `provider/model` string used for initial selection. Availability is still checked against credentials and the catalog.
+- `defaultSubtaskModel`: optional non-empty `provider/model` used by `task` when its call omits `model`. When absent, children inherit the active parent model. A per-task model remains an explicit override. Unavailable models and models without tool support fall back to the parent model.
 - `permissionMode`: `safe`, `write`, or `yolo`; default `write`. See the security section in the README. CLI `--permission-mode` has higher precedence.
 
 ### Subagents
@@ -104,7 +110,7 @@ Children branch from an immutable prepared-context checkpoint. Research children
 ### Compaction
 
 - `compaction.thresholdPercent`: integer `1` through `100`; default `85`. Automatic compaction starts at this percentage of a known context window.
-- `compaction.keepRecentTokens`: non-negative integer; default `20000`. Approximate recent-history target retained after an ordinary compaction. Overflow recovery uses a smaller target.
+- `compaction.keepRecentTokens`: positive integer; default `20000`. Approximate recent-history target retained after an ordinary compaction. Overflow recovery uses a smaller target.
 - `compaction.enabled`: enables threshold-triggered automatic compaction; default `true`. Setting it to `false` retains explicit `/compact` and the one-shot overflow recovery path.
 
 A model with an unknown context window has no automatic threshold. `/compact` remains available. Snapcompact is loaded only when a compaction pass runs. Vision-capable models may receive rendered archive frames; other models receive deterministic text fallback.
@@ -115,6 +121,8 @@ A model with an unknown context window has no automatic threshold. `/compact` re
 - `ui.showThinking`: expands thinking blocks by default when `true`; default `false`. Tab can still collapse or expand the latest block.
 
 Both fields apply on startup and `/reload`.
+
+`/settings` opens the mounted interactive editor for the scalar settings above. Changes are written atomically to the global JSONC file, preserving unrelated fields and comments, then the runtime is reloaded when the menu closes. Numeric prompts accept `default` to remove the global override. Custom provider/model definitions remain file-edited because they contain nested endpoint and capability schemas.
 
 ## Custom OpenAI-compatible providers
 
@@ -135,6 +143,9 @@ A model record contains:
 - `maxOutputTokens`: positive integer.
 - `input`: non-empty array containing `text` and optionally `image`.
 - `toolCalling`: boolean.
+- `compat`: optional prompt-cache capability overrides for endpoints whose URL cannot be auto-detected. Supported fields are `cacheControlFormat: "anthropic"`, `promptCacheSessionHeader: "x-grok-conv-id"`, `supportsPromptCacheBreakpoints`, `promptCacheBreakpointTtl: "30m"`, and `supportsLongPromptCacheRetention`.
+
+Leave `compat` unset for known providers because `@oh-my-pi/pi-catalog` derives the correct capabilities. Only opt a custom endpoint into fields its server actually accepts.
 
 Authenticated example:
 

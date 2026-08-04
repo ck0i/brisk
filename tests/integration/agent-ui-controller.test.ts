@@ -19,7 +19,13 @@ describe("AgentUiController", () => {
           id: "response",
           thinking: ["one", " two"],
           text: ["hello", " world"],
-          usage: { inputTokens: 7, outputTokens: 5, cost: 0.125 },
+          usage: {
+            inputTokens: 7,
+            outputTokens: 5,
+            cacheReadTokens: 3,
+            cacheWriteTokens: 2,
+            cost: 0.125,
+          },
         },
       ]),
       model: "fake",
@@ -39,6 +45,8 @@ describe("AgentUiController", () => {
       streaming: false,
     });
     expect(store.snapshot.contextTokens).toBe(12);
+    expect(store.snapshot.cacheReadTokens).toBe(3);
+    expect(store.snapshot.cacheWriteTokens).toBe(2);
     expect(store.snapshot.cost).toBe(0.125);
     expect(store.snapshot.busy).toBe(false);
     expect(store.snapshot.status).toBe("ready");
@@ -51,10 +59,14 @@ describe("AgentUiController", () => {
       description: "fixture edit",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       parse: () => ({}),
-      execute: () => ({
-        content:
-          "Edit committed atomically\n\n--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n",
-      }),
+      execute: (_arguments, context) => {
+        context.emitPreview({
+          summary: "value.ts",
+          diff: "--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n",
+          targetPaths: ["value.ts"],
+        });
+        return { content: "Edit committed atomically" };
+      },
     });
     const loop = new AgentLoop({
       provider: new FakeProvider([
@@ -73,8 +85,49 @@ describe("AgentUiController", () => {
     expect(store.snapshot.messages[1]?.tools?.[0]).toMatchObject({
       name: "edit",
       status: "completed",
+      summary: "value.ts",
       diff: "--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n",
+      expanded: true,
     });
+  });
+
+  test("does not render a research report mistakenly placed in task.patch as a diff", async () => {
+    const store = new UiStore("fixture");
+    const tools = new ToolRegistry().register({
+      name: "task",
+      description: "fixture task",
+      inputSchema: { type: "object", properties: {}, additionalProperties: false },
+      parse: () => ({}),
+      execute: () => ({
+        content: JSON.stringify({
+          status: "completed",
+          summary: "Repository inspection complete",
+          patch: "Technical overview:\n\nNo files were modified.",
+          childSessionId: "child-1",
+        }),
+      }),
+    });
+    const loop = new AgentLoop({
+      provider: new FakeProvider([
+        { toolCalls: [{ id: "task-1", name: "task", arguments: {} }] },
+        { text: "done" },
+      ]),
+      model: "fake",
+      tools,
+    });
+    const controller = new AgentUiController(loop, store, 1);
+
+    await controller.submit("inspect");
+    await settleFrames();
+    controller.dispose();
+
+    expect(store.snapshot.messages[1]?.tools?.[0]).toMatchObject({
+      name: "task",
+      status: "completed",
+      summary: "Repository inspection complete",
+    });
+    expect(store.snapshot.messages[1]?.tools?.[0]?.diff).toBeUndefined();
+    expect(store.snapshot.messages[1]?.tools?.[0]?.expanded).toBeUndefined();
   });
 
   test("keeps a cancelled partial response visible and stops the busy state", async () => {

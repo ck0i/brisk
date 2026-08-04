@@ -111,6 +111,11 @@ describe("ToolRegistry", () => {
       execute(arguments_, context) {
         context.emitOutput("stdout", "first");
         context.emitOutput("stderr", "second");
+        context.emitPreview({
+          summary: "value.ts",
+          diff: "--- a/value.ts\n+++ b/value.ts\n",
+          targetPaths: ["value.ts"],
+        });
         return { content: arguments_.label };
       },
     });
@@ -120,6 +125,7 @@ describe("ToolRegistry", () => {
       {
         onStart: (call) => events.push(`start:${call.id}`),
         onOutput: (_call, stream, delta) => events.push(`${stream}:${delta}`),
+        onPreview: (_call, preview) => events.push(`preview:${preview.summary}`),
         onEnd: (call, completed) => events.push(`end:${call.id}:${completed.content}`),
       },
     );
@@ -129,6 +135,7 @@ describe("ToolRegistry", () => {
       "start:stream-1",
       "stdout:first",
       "stderr:second",
+      "preview:value.ts",
       "end:stream-1:done",
     ]);
   });

@@ -76,7 +76,9 @@ export class WorkspacePaths {
       : path.resolve(this.root, authoredPath);
     const outsideAllowed = allowOutside || authoredAbsolute;
     if (!outsideAllowed && !isWithin(this.root, candidate)) {
-      throw new WorkspacePathError(`Relative path escapes the workspace: ${JSON.stringify(authoredPath)}`);
+      throw new WorkspacePathError(
+        `Relative path escapes the workspace: ${JSON.stringify(authoredPath)}`,
+      );
     }
 
     const canonicalPath = canonicalizeExistingAncestor(candidate);

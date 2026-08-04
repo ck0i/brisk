@@ -55,7 +55,8 @@ export async function resolveWorkspacePath(
 }
 
 export function assertContained(root: string, candidate: string): void {
-  if (!isContained(root, candidate)) throw new Error(`Relative path escapes workspace: ${candidate}`);
+  if (!isContained(root, candidate))
+    throw new Error(`Relative path escapes workspace: ${candidate}`);
 }
 
 export function stableRelative(root: string, path: string): string {
@@ -67,10 +68,7 @@ export function stableRelative(root: string, path: string): string {
 
 function isContained(root: string, candidate: string): boolean {
   const child = relative(root, candidate);
-  return (
-    child === "" ||
-    (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child))
-  );
+  return child === "" || (child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child));
 }
 
 export function normalizeRelative(path: string): string {

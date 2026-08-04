@@ -60,6 +60,15 @@ export function paletteForTheme(theme: UiTheme) {
   return theme === "high-contrast" ? HIGH_CONTRAST_COLORS : COLORS;
 }
 
+const BRISK_WORK_FRAMES = [
+  "✦ B r i s k",
+  "B ✦ r i s k",
+  "B r ✦ i s k",
+  "B r i ✦ s k",
+  "B r i s ✦ k",
+  "B r i s k ✦",
+] as const;
+
 const COMPOSER_BINDINGS: KeyBinding[] = [
   { name: "return", action: "submit" },
   { name: "return", shift: true, action: "newline" },
@@ -934,6 +943,7 @@ export function Root(props: RootProps) {
   const [slashSelectedIndex, setSlashSelectedIndex] = createSignal(0);
   const [slashDismissed, setSlashDismissed] = createSignal(false);
   const [historyLimit, setHistoryLimit] = createSignal(100);
+  const [workingFrame, setWorkingFrame] = createSignal(0);
   let composer: TextareaRenderable | undefined;
   let conversation: ScrollBoxRenderable | undefined;
   let suppressSlashDismissalReset = false;
@@ -946,6 +956,18 @@ export function Root(props: RootProps) {
     state().auth !== undefined ||
     state().btw !== undefined ||
     state().agentPanel !== undefined;
+
+  createEffect(() => {
+    if (!state().busy) {
+      setWorkingFrame(0);
+      return;
+    }
+    const timer = setInterval(
+      () => setWorkingFrame((frame) => (frame + 1) % BRISK_WORK_FRAMES.length),
+      120,
+    );
+    onCleanup(() => clearInterval(timer));
+  });
 
   const unsubscribe = props.store.subscribe(setState);
   let selectedText = "";
@@ -1317,6 +1339,23 @@ export function Root(props: RootProps) {
         <box height={1} paddingX={1} flexShrink={0}>
           <text fg={palette().muted} height={1} wrapMode="none" truncate>
             /agents · {state().agents.length} children · {agentStripSummary(state().agents)}
+          </text>
+        </box>
+      </Show>
+
+      <Show when={state().busy}>
+        <box
+          id="brisk-working-indicator"
+          height={1}
+          paddingX={1}
+          flexShrink={0}
+          backgroundColor={palette().surface}
+          width="100%"
+        >
+          <text fg={palette().accent} height={1} wrapMode="none" truncate>
+            <strong>{BRISK_WORK_FRAMES[workingFrame()]}</strong>
+            {`  Working${".".repeat((workingFrame() % 3) + 1)}`}
+            <Show when={state().status}> · {state().status}</Show>
           </text>
         </box>
       </Show>

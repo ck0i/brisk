@@ -44,7 +44,7 @@ export class LoopRuntime {
     this.clear();
   }
 
-  execute(argumentValue: string, idle: boolean): void {
+  execute(argumentValue: string, _idle = true): void {
     const argument = argumentValue.trim().toLowerCase();
     if (argument === "stop") {
       const wasRunning = this.active;
@@ -66,11 +66,6 @@ export class LoopRuntime {
       } else {
         this.options.notify("No loop is active.");
       }
-      return;
-    }
-
-    if (!idle) {
-      this.options.notify("Wait for the current agent run to finish before arming /loop.");
       return;
     }
 

@@ -361,6 +361,43 @@ test("an exact slash command submits on the first Enter while its menu is visibl
   }
 });
 
+test("busy UI animates Brisk Working status and still submits slash commands", async () => {
+  const store = new UiStore("fixture");
+  store.update({ busy: true, status: "streaming" });
+  const submissions: string[] = [];
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={(value) => {
+          submissions.push(value);
+          return true;
+        }}
+        onAbort={() => {}}
+        onExit={() => {}}
+      />
+    ),
+    { width: 90, height: 24 },
+  );
+  try {
+    const first = await setup.renderOnce().then(() => setup.captureCharFrame());
+    expect(first).toContain("Working.");
+    expect(first).toContain("B r i s k");
+    await Bun.sleep(140);
+    const animated = await setup.waitForFrame(
+      (frame) => frame.includes("Working..") && frame !== first,
+    );
+    expect(animated).toContain("streaming");
+
+    await setup.mockInput.typeText("/effort");
+    setup.mockInput.pressEnter();
+    await setup.waitFor(() => submissions.length === 1);
+    expect(submissions).toEqual(["/effort"]);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("extension UI slots render and registered keybindings invoke without stealing focus", async () => {
   const store = new UiStore("fixture");
   store.setExtensionUi([

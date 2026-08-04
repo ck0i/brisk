@@ -74,6 +74,12 @@ export class InteractiveRuntime {
   private readonly authController: UiAuthController;
   private readonly pickerController: UiPickerController;
   private readonly textInputController: UiTextInputController;
+  private readonly deferredOperations: Array<{
+    readonly description: string;
+    readonly run: () => Promise<void>;
+  }> = [];
+  private deferredIdleUnsubscribe: (() => void) | undefined;
+  private drainingDeferredOperations = false;
   private closed = false;
 
   private constructor(
@@ -215,6 +221,9 @@ export class InteractiveRuntime {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
+    this.deferredIdleUnsubscribe?.();
+    this.deferredIdleUnsubscribe = undefined;
+    this.deferredOperations.length = 0;
     this.compactionController?.abort(new DOMException("Closing", "AbortError"));
     await this.btw?.dispose();
     this.btw = undefined;
@@ -590,7 +599,7 @@ export class InteractiveRuntime {
       providerModel: selectedName,
       effort,
       contextWindow: selection.record.contextWindow ?? undefined,
-      status: "ready",
+      status: this.agentLoop?.active === true ? "model updated · next request" : "ready",
     });
     const defaultSubtaskModel = this.resolveDefaultSubtaskModel(selectedName);
     await this.initializeSubagents(defaultSubtaskModel);
@@ -682,8 +691,7 @@ export class InteractiveRuntime {
   }
 
   private async createNewSession(): Promise<void> {
-    if (this.store.snapshot.busy) {
-      this.addSystem("Abort active work before creating a new session.");
+    if (this.deferUntilAgentIdle("New session", async () => await this.createNewSession())) {
       return;
     }
     const session = this.requireSessionRuntime();
@@ -728,8 +736,9 @@ export class InteractiveRuntime {
   private async switchSession(id: string): Promise<void> {
     const session = this.requireSessionRuntime();
     if (id === session.sessionId) return;
-    if (this.store.snapshot.busy) {
-      this.addSystem("Abort active work before switching sessions.");
+    if (
+      this.deferUntilAgentIdle(`Switch to session ${id}`, async () => await this.switchSession(id))
+    ) {
       return;
     }
     await this.extensions?.emitLifecycle("session-end", { sessionId: session.sessionId });
@@ -793,8 +802,11 @@ export class InteractiveRuntime {
   }
 
   private async reloadConfigurationAndExtensions(): Promise<void> {
-    if (this.store.snapshot.busy) {
-      this.addSystem("Abort active work before reloading configuration and extensions.");
+    if (
+      this.deferUntilAgentIdle("Configuration reload", async () =>
+        this.reloadConfigurationAndExtensions(),
+      )
+    ) {
       return;
     }
     await this.configManager.reload();
@@ -819,6 +831,41 @@ export class InteractiveRuntime {
         ? `Reloaded configuration and extensions: ${summary.loaded} loaded, ${summary.denied} denied, ${summary.failed} failed.`
         : "Configuration reloaded.",
     );
+  }
+
+  private deferUntilAgentIdle(description: string, run: () => Promise<void>): boolean {
+    const loop = this.agentLoop;
+    if (!loop?.active) return false;
+
+    this.deferredOperations.push({ description, run });
+    this.addSystem(`${description} queued for the end of the active agent run.`);
+    if (!this.deferredIdleUnsubscribe) {
+      this.deferredIdleUnsubscribe = loop.subscribe((event) => {
+        if (event.type !== "idle") return;
+        this.deferredIdleUnsubscribe?.();
+        this.deferredIdleUnsubscribe = undefined;
+        queueMicrotask(() => void this.drainDeferredOperations());
+      });
+    }
+    return true;
+  }
+
+  private async drainDeferredOperations(): Promise<void> {
+    if (this.drainingDeferredOperations || this.closed) return;
+    this.drainingDeferredOperations = true;
+    try {
+      while (!this.closed) {
+        const operation = this.deferredOperations.shift();
+        if (!operation) break;
+        try {
+          await operation.run();
+        } catch (error) {
+          this.addSystem(`${operation.description} failed: ${redactedErrorMessage(error)}`);
+        }
+      }
+    } finally {
+      this.drainingDeferredOperations = false;
+    }
   }
 
   private requireSessionRuntime(): SessionRuntime {
@@ -914,11 +961,6 @@ export class InteractiveRuntime {
   }
 
   private async openSettings(): Promise<void> {
-    if (this.store.snapshot.busy) {
-      this.addSystem("Abort active work before changing settings.");
-      return;
-    }
-
     let changed = false;
     let selectedId = "defaultModel";
     while (true) {
@@ -1079,11 +1121,19 @@ export class InteractiveRuntime {
       this.addSystem("Select an available model before configuring effort.");
       return false;
     }
-    return await this.chooseAndSaveEffort(
+    const changed = await this.chooseAndSaveEffort(
       model,
       subtask ? "Subagent effort" : "Main agent effort",
       subtask ? "subtaskEffort" : "effort",
     );
+    if (!changed) return false;
+    if (subtask) {
+      this.subagents?.setDefaultEffort(this.configManager.current.subtaskEffort);
+    } else if (this.providerService) {
+      const effort = this.providerService.setEffort(this.configManager.current.effort);
+      this.store.update({ effort });
+    }
+    return true;
   }
 
   private async changeChoiceSetting(
@@ -1177,8 +1227,7 @@ export class InteractiveRuntime {
       this.addSystem("Context management is unavailable until a model is selected.");
       return;
     }
-    if (this.store.snapshot.busy) {
-      this.addSystem("Abort active work before compacting context manually.");
+    if (this.deferUntilAgentIdle("Context compaction", async () => await this.compactContext())) {
       return;
     }
     const controller = new AbortController();
@@ -1237,10 +1286,6 @@ export class InteractiveRuntime {
   }
 
   private async changeEffort(subtask: boolean): Promise<void> {
-    if (this.store.snapshot.busy) {
-      this.addSystem("Abort active work before changing effort.");
-      return;
-    }
     const providers = this.providerService;
     const selected = providers?.selected;
     if (!providers || !selected) {

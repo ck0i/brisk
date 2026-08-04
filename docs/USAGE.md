@@ -26,6 +26,8 @@ Policy presets (not OS sandboxes): `safe` prompts for writes and shell; `write` 
 | `/clear`                           | Clear screen (transcript kept)                                          |
 | `/quit`                            | Exit                                                                    |
 
+Slash commands remain available while the main agent runs. Model and effort changes apply to the next provider request, and settings can be edited immediately. Commands that must replace session/runtime state (`/new`, session switching, `/reload`, and manual `/compact`) queue until the active run settles instead of requiring an abort.
+
 `/loop` captures the next accepted prompt and repeats it only after each full agent run settles; cancellation or provider failure stops the loop. `/goal` persists its full objective in the session, gives the model a `goal` completion tool, and automatically continues until completed, dropped, paused, or limited by `goalMaxTurns`. `/btw` copies a safe snapshot of the main context into an isolated side agent with only `read`, `search`, `find`, and `list`; its conversation is not inserted into the main transcript. Press `Esc` to close the BTW overlay.
 
 ## Keybindings

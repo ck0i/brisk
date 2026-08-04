@@ -31,7 +31,8 @@ describe("first-class modes", () => {
     });
     mode.attach(loop, async (prompt) => await loop.submit(prompt));
 
-    mode.execute("3", true);
+    // Arming a loop is a local command and remains available during an active run.
+    mode.execute("3", false);
     mode.capturePrompt("repeat this exactly");
     await loop.submit("repeat this exactly");
     await waitFor(() => notices.some((message) => message === "Loop complete after 3 runs."));

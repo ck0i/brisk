@@ -25,11 +25,7 @@ describe("diff preview presentation", () => {
     const sections = splitDiffPreview(first + second);
 
     expect(sections).toHaveLength(3);
-    expect(sections.map((section) => section.path)).toEqual([
-      "first.ts",
-      "first.ts",
-      "second.ts",
-    ]);
+    expect(sections.map((section) => section.path)).toEqual(["first.ts", "first.ts", "second.ts"]);
     expect(sections.map((section) => section.rows)).toEqual([4, 4, 2]);
     expect(sections.map((section) => diffSectionHeight(section))).toEqual([4, 4, 2]);
     expect(sections[0]?.diff.match(/^@@/gm)).toHaveLength(1);

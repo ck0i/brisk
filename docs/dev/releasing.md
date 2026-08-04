@@ -8,7 +8,7 @@ A push to `main` by an actor with GitHub `write`, `maintain`, or `admin` permiss
 
 1. Adds the workflow run number to the patch component in `package.json` (for example, base `0.1.0` at run 12 becomes `0.1.12`).
 2. Runs `bun run release:check` and builds all standalone targets.
-3. Publishes the generated version of `brisk-ai` to npm. The repository must have an `NPM_TOKEN` Actions secret with publish access.
+3. Publishes the generated version of `brisk-ai` to npm. Store `NPM_TOKEN` as a secret in the repository's `npm` environment; the workflow selects that environment for the release job.
 4. Creates and pushes a release-only version commit and `v<version>` tag without changing `main`.
 5. Publishes a GitHub release with generated notes, all archives, and `brisk-release-SHA256SUMS`.
 

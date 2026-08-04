@@ -2,6 +2,7 @@ import { CliRenderEvents, createCliRenderer, type CliRenderer } from "@opentui/c
 import { render } from "@opentui/solid";
 
 import { Root } from "./ui/root.tsx";
+import { copyTextToSystemClipboard } from "./ui/clipboard.ts";
 import { UiStore, type UiSnapshot } from "./ui/state.ts";
 
 export interface TuiRuntime {
@@ -95,6 +96,7 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
           onOpenModels={() => options.handlers.openModels?.(store)}
           onOpenSessions={() => options.handlers.openSessions?.(store)}
           onOpenPath={(path) => options.handlers.openPath?.(path, store, runtime)}
+          onCopyText={copyTextToSystemClipboard}
           onKeybinding={(key) => options.handlers.keybinding?.(key, store)}
           renderer={renderer}
         />

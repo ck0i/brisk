@@ -43,27 +43,19 @@ export async function openFileInEditor(
   options: FileEditorOptions = {},
 ): Promise<void> {
   const invocation = fileEditorCommand(path, options);
-  let process_: Bun.Subprocess<"inherit", "ignore", "pipe">;
+  let process_: Bun.Subprocess<"inherit", "inherit", "inherit">;
   try {
     process_ = Bun.spawn([...invocation.command], {
       env: invocation.environment,
       stdin: "inherit",
-      stdout: "ignore",
-      stderr: "pipe",
+      stdout: "inherit",
+      stderr: "inherit",
     });
   } catch (error) {
     throw new Error(`Unable to start an editor for ${basename(path)}`, { cause: error });
   }
-  const [exitCode, stderr] = await Promise.all([
-    process_.exited,
-    new Response(process_.stderr).text(),
-  ]);
-  if (exitCode !== 0) {
-    const detail = stderr.trim().slice(0, 1_000);
-    throw new Error(
-      `Editor exited with code ${exitCode}${detail.length === 0 ? "" : `: ${detail}`}`,
-    );
-  }
+  const exitCode = await process_.exited;
+  if (exitCode !== 0) throw new Error(`Editor exited with code ${exitCode}`);
 }
 
 function definedEnvironment(

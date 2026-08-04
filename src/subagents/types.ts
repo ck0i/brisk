@@ -68,6 +68,7 @@ export interface ChildSessionInfo {
   readonly depth: number;
   readonly status: ChildSessionStatus;
   readonly usage: Usage;
+  readonly activityEvents: number;
   readonly transcript: readonly Message[];
   readonly maxOutputTokens?: number;
   readonly result?: TaskResult;

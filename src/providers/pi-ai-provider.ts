@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
   streamSimple,
   type Api,
@@ -70,6 +72,7 @@ export class PiAiProvider implements Provider {
   private sessionId: string | undefined;
   private readonly cacheRetention: CacheRetention | undefined;
   private readonly providerSessionState = new Map<string, ProviderSessionState>();
+  private cursorRetrySessionId: string | undefined;
   private readonly streamUpstream: PiStreamFunction;
   private readonly preconnect: (url: string) => void;
   private readonly streamFirstEventTimeoutMs: number | undefined;
@@ -95,6 +98,7 @@ export class PiAiProvider implements Provider {
   }
 
   setModel(model: Model<Api>): void {
+    if (model !== this.currentModel) this.cursorRetrySessionId = undefined;
     this.currentModel = model;
     this.preconnectBestEffort(model);
   }
@@ -106,6 +110,7 @@ export class PiAiProvider implements Provider {
   setSessionId(sessionId: string | undefined): void {
     if (sessionId === this.sessionId) return;
     this.closeProviderSessionState();
+    this.cursorRetrySessionId = undefined;
     this.sessionId = sessionId;
   }
 
@@ -116,6 +121,8 @@ export class PiAiProvider implements Provider {
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
     const model = this.currentModel;
     const sessionId = request.sessionId ?? this.sessionId;
+    const providerSessionId =
+      model.api === "cursor-agent" ? (this.cursorRetrySessionId ?? sessionId) : sessionId;
     let apiKey: string | undefined;
 
     try {
@@ -146,7 +153,7 @@ export class PiAiProvider implements Provider {
           : this.reasoning === undefined
             ? {}
             : { reasoning: this.reasoning }),
-        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(providerSessionId === undefined ? {} : { sessionId: providerSessionId }),
         ...(this.cacheRetention === undefined ? {} : { cacheRetention: this.cacheRetention }),
         // Pi's coding-agent path is stateless and relies on prompt-cache affinity, not stored responses.
         statefulResponses: false,
@@ -179,11 +186,16 @@ export class PiAiProvider implements Provider {
               yield { type: "provider_tool_result", message: result };
             }
             providerToolResults.clear();
+          } else if (normalized.type === "error") {
+            // A failed stateful transport can poison the next Brisk retry,
+            // especially Cursor's conversation channel. Retry from clean state.
+            this.resetFailedProviderState(model);
           }
           yield normalized;
         }
       }
     } catch (error) {
+      this.resetFailedProviderState(model);
       yield {
         type: "error",
         error: normalizeProviderFailure(error, {
@@ -192,6 +204,13 @@ export class PiAiProvider implements Provider {
           secrets: apiKey === undefined ? [] : [apiKey],
         }),
       };
+    }
+  }
+
+  private resetFailedProviderState(model: Model<Api>): void {
+    this.closeProviderSessionState();
+    if (model.api === "cursor-agent" && this.currentModel === model) {
+      this.cursorRetrySessionId = randomUUID();
     }
   }
 

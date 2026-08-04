@@ -43,6 +43,8 @@ Slash commands remain available while the main agent runs. Model and effort chan
 | `Ctrl+O`                   | Session picker                                                                 |
 | `A` / `S` / `D`            | Approve once / session / deny                                                  |
 
+Highlighted text copies through OSC 52 when supported, then falls back to `wl-copy`, `xclip`, `xsel`, `pbcopy`, or `clip.exe` when available.
+
 Edit previews show each target as a clickable path. Hold Ctrl and click a path to open it. Brisk uses `BRISK_EDITOR`, then `VISUAL`, then `EDITOR`; values may include arguments such as `code --wait`. Without one, it uses the platform file opener.
 
 ## AGENTS.md

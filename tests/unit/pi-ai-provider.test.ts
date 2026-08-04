@@ -327,6 +327,51 @@ describe("PiAiProvider stream adapter", () => {
     expect(closes).toBe(1);
   });
 
+  test("gives a failed Cursor retry clean transport and conversation state", async () => {
+    let state: Map<string, { close(): void }> | undefined;
+    let closes = 0;
+    let attempts = 0;
+    const sessionIds: (string | undefined)[] = [];
+    const cursorModel = makeCursorModel();
+    const provider = new PiAiProvider({
+      model: cursorModel,
+      auth: { getApiKey: async () => "BRISK_TEST_RETRY_KEY" },
+      sessionId: "child-session",
+      preconnect: () => undefined,
+      stream: (selected, _context, options) => {
+        attempts += 1;
+        sessionIds.push(options.sessionId);
+        state = options.providerSessionState;
+        state?.set(`cursor-channel-${attempts}`, { close: () => (closes += 1) });
+        if (attempts > 1) return successfulStream(selected);
+        const partial = piAssistant(selected, []);
+        const failed = {
+          ...partial,
+          stopReason: "error" as const,
+          errorMessage: "stream stalled",
+        };
+        return (async function* () {
+          yield { type: "start", partial } satisfies AssistantMessageEvent;
+          yield { type: "error", reason: "error", error: failed } satisfies AssistantMessageEvent;
+        })();
+      },
+    });
+
+    const failed = await collect(provider, request("composer-2.5"));
+    expect(failed.at(-1)).toMatchObject({ type: "error" });
+    expect(closes).toBe(1);
+    expect(state?.size).toBe(0);
+
+    await collect(provider, request("composer-2.5"));
+    expect(sessionIds[0]).toBe("child-session");
+    expect(sessionIds[1]).not.toBe("child-session");
+    expect(sessionIds[1]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    provider.close();
+    expect(closes).toBe(2);
+  });
+
   test("converts thrown upstream failures to redacted normalized error events", async () => {
     const apiKey = "BRISK_TEST_THROWN_KEY";
     const provider = new PiAiProvider({
@@ -413,6 +458,21 @@ function piAssistant(selected: Model, content: AssistantMessage["content"]): Ass
     stopReason: "stop",
     timestamp: 1,
   };
+}
+
+function makeCursorModel(): Model<"cursor-agent"> {
+  return buildModel({
+    id: "composer-2.5",
+    name: "Composer 2.5",
+    api: "cursor-agent",
+    provider: "cursor",
+    baseUrl: "https://cursor.test",
+    reasoning: true,
+    input: ["text"],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 200_000,
+    maxTokens: 32_000,
+  });
 }
 
 function makeModel(

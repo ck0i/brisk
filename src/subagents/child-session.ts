@@ -24,6 +24,7 @@ export class ChildSession {
   private statusValue: ChildSessionStatus = "queued";
   private resultValue: TaskResult | undefined;
   private usageValue: Usage = zeroUsage;
+  private activityEventsValue = 0;
   private readonly messages: Message[] = [];
   private adapter: ChildSessionAdapter | undefined;
   private writeQueue: Promise<void> = Promise.resolve();
@@ -78,7 +79,15 @@ export class ChildSession {
     this.loop = loop;
     this.unsubscribe = loop.subscribe((event) => {
       this.record(event);
-      if (onProgress && isProgressEvent(event)) onProgress();
+      const liveActivity = isLiveActivityEvent(event);
+      if (liveActivity) this.activityEventsValue += 1;
+      if (
+        onProgress &&
+        isProgressEvent(event) &&
+        (!liveActivity || this.activityEventsValue === 1 || this.activityEventsValue % 32 === 0)
+      ) {
+        onProgress();
+      }
     });
   }
 
@@ -120,6 +129,7 @@ export class ChildSession {
       depth: this.depth,
       status: this.statusValue,
       usage: this.usage,
+      activityEvents: this.activityEventsValue,
       transcript: this.messages,
       ...(this.input.maxOutputTokens === undefined
         ? {}
@@ -153,10 +163,22 @@ function isProgressEvent(event: AgentEvent): boolean {
   return (
     event.type === "user_message" ||
     event.type === "assistant_message" ||
-    event.type === "tool_execution_start" ||
-    event.type === "tool_execution_end" ||
     event.type === "tool_result" ||
-    event.type === "usage"
+    event.type === "usage" ||
+    isLiveActivityEvent(event)
+  );
+}
+
+function isLiveActivityEvent(event: AgentEvent): boolean {
+  return (
+    event.type === "text_delta" ||
+    event.type === "thinking_delta" ||
+    event.type === "tool_call_start" ||
+    event.type === "tool_call_delta" ||
+    event.type === "tool_call_end" ||
+    event.type === "tool_execution_start" ||
+    event.type === "tool_execution_output" ||
+    event.type === "tool_execution_end"
   );
 }
 

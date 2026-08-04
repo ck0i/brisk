@@ -387,6 +387,7 @@ function toUiAgent(info: ChildSessionInfo): UiAgentIndicator {
     status: info.status,
     inputTokens: info.usage.inputTokens,
     outputTokens: info.usage.outputTokens,
+    activityEvents: info.activityEvents,
     transcript: info.transcript.map((message) => ({
       role: message.role,
       content: message.content,

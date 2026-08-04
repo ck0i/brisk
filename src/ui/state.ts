@@ -49,6 +49,7 @@ export interface UiAgentIndicator {
   status: UiAgentStatus;
   inputTokens: number;
   outputTokens: number;
+  activityEvents?: number;
   childSessionId: string;
   transcript?: readonly UiAgentTranscriptLine[];
   summary?: string;

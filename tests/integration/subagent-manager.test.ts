@@ -84,6 +84,7 @@ describe("SubagentManager execution", () => {
     expect(providers.get("child-1")?.requests[0]?.maxOutputTokens).toBeUndefined();
     expect(providers.get("child-3")?.requests[0]?.maxOutputTokens).toBe(77);
     expect(sessions[0]?.usage).toEqual({ inputTokens: 10, outputTokens: 2 });
+    expect(sessions[0]?.activityEvents).toBeGreaterThan(0);
 
     const sharedCheckpoint = manager.getCheckpoint("child-1");
     expect(manager.getCheckpoint("child-2")).toBe(sharedCheckpoint);

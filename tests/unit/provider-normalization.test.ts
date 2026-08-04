@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AssistantMessage, AssistantMessageEvent, Usage } from "@oh-my-pi/pi-ai";
-import { ProviderHttpError } from "@oh-my-pi/pi-ai/error";
+import { ProviderHttpError, StreamTimeoutError } from "@oh-my-pi/pi-ai/error";
 
 import {
   normalizeAssistantMessageEvent,
@@ -154,6 +154,10 @@ describe("provider error classification", () => {
       status: 503,
     });
     expect(normalizeProviderFailure(new TypeError("fetch failed")).kind).toBe("network");
+    expect(normalizeProviderFailure(new StreamTimeoutError("stream stalled"))).toMatchObject({
+      kind: "network",
+      retryable: true,
+    });
   });
 
   test("redacts bearer and explicit sentinel values without retaining the cause", () => {

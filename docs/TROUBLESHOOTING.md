@@ -54,4 +54,4 @@ Use `--json` on list/status/doctor commands. Do not attach `auth.db`, callbacks,
 
 **Compaction** — Needs a known model context window and enough estimated usage (`/context`). `/compact` while idle always attempts a pass.
 
-**Child agents** — Queued when at `maxSubagents`; depth limit returns blocked. Patch children return diffs only.
+**Child agents** — Queued when at `maxSubagents`; depth limit returns blocked. Patch children return diffs only. A running child with no provider usage shows “waiting for first response”; live stream/tool events are shown separately because some providers, notably Cursor, delay or omit token accounting. Stalled Cursor child attempts use a 90-second stream deadline, retry from a fresh conversation, and retain the final failure reason in agent detail.

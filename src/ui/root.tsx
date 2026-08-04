@@ -108,6 +108,7 @@ export interface RootProps {
   onOpenModels?: () => void;
   onOpenSessions?: () => void;
   onOpenPath?: (path: string) => void;
+  onCopyText?: (text: string) => boolean | Promise<boolean>;
   onKeybinding?: (key: string) => void;
   renderer?: CliRenderer;
 }
@@ -223,7 +224,7 @@ function MessageBody(props: {
                         <diff
                           diff={section.diff}
                           view="unified"
-                          wrapMode="char"
+                          wrapMode="none"
                           showLineNumbers
                           height={diffSectionHeight(section)}
                           width="100%"
@@ -256,7 +257,10 @@ function MessageBody(props: {
   );
 }
 
-function ApprovalOverlay(props: { approval: UiApprovalPrompt }) {
+function ApprovalOverlay(props: {
+  approval: UiApprovalPrompt;
+  onOpenPath?: (path: string) => void;
+}) {
   return (
     <box
       position="absolute"
@@ -286,21 +290,49 @@ function ApprovalOverlay(props: { approval: UiApprovalPrompt }) {
         <Show when={props.approval.command}>
           {(command: () => string) => <text fg={COLORS.muted}>command · {command()}</text>}
         </Show>
-        <Show when={props.approval.targetPaths.length > 0}>
-          <text fg={COLORS.muted}>targets · {props.approval.targetPaths.join(", ")}</text>
-        </Show>
+        <For each={props.approval.targetPaths}>
+          {(path, index) => (
+            <text
+              id={`approval-path-${index()}`}
+              fg={COLORS.accent}
+              wrapMode="none"
+              truncate
+              onMouseDown={(event) => {
+                if (event.button !== 0 || !event.modifiers.ctrl) return;
+                event.preventDefault();
+                event.stopPropagation();
+                props.onOpenPath?.(path);
+              }}
+            >
+              target · <u>{path}</u> · Ctrl+click to open
+            </text>
+          )}
+        </For>
         <Show when={props.approval.diff}>
           {(diff: () => string) => (
-            <diff
-              diff={diff()}
-              view="unified"
-              wrapMode="char"
-              showLineNumbers
-              height={12}
-              width="100%"
-              addedBg="#173b2a"
-              removedBg="#4a2026"
-            />
+            <scrollbox height={12} width="100%">
+              <For each={splitDiffPreview(diff())}>
+                {(section, index) => (
+                  <>
+                    <Show when={index() > 0}>
+                      <text fg={COLORS.border} height={1} wrapMode="none" truncate>
+                        {"─".repeat(120)}
+                      </text>
+                    </Show>
+                    <diff
+                      diff={section.diff}
+                      view="unified"
+                      wrapMode="none"
+                      showLineNumbers
+                      height={diffSectionHeight(section)}
+                      width="100%"
+                      addedBg="#173b2a"
+                      removedBg="#4a2026"
+                    />
+                  </>
+                )}
+              </For>
+            </scrollbox>
           )}
         </Show>
         <text fg={COLORS.warning}>risk · {props.approval.riskDescription}</text>
@@ -717,6 +749,16 @@ function agentStatusColor(status: UiAgentStatus): string {
   }
 }
 
+function agentMeterLabel(agent: UiAgentIndicator): string {
+  if (agent.status === "running" && agent.outputTokens === 0) {
+    const activity = agent.activityEvents ?? 0;
+    return activity === 0
+      ? "waiting for first response"
+      : `live · ${activity.toLocaleString()} events · token count pending`;
+  }
+  return `in ${agent.inputTokens.toLocaleString()} out ${agent.outputTokens.toLocaleString()}`;
+}
+
 function agentStripSummary(agents: readonly UiAgentIndicator[]): string {
   const order: readonly UiAgentStatus[] = [
     "running",
@@ -802,8 +844,7 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
                       <text height={1} wrapMode="none" truncate fg={COLORS.muted}>
                         {"    "}
                         {row.agent.status} · {row.agent.mode} · {row.agent.provider}/
-                        {row.agent.model} · in {row.agent.inputTokens.toLocaleString()} out{" "}
-                        {row.agent.outputTokens.toLocaleString()}
+                        {row.agent.model} · {agentMeterLabel(row.agent)}
                       </text>
                     </box>
                   )}
@@ -831,8 +872,9 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
                   model · {agent().provider}/{agent().model}
                 </text>
                 <text fg={COLORS.text} height={1} wrapMode="none" truncate>
-                  tokens · input {agent().inputTokens.toLocaleString()} · output{" "}
-                  {agent().outputTokens.toLocaleString()}
+                  {agent().status === "running" && agent().outputTokens === 0
+                    ? `progress · ${agentMeterLabel(agent())}`
+                    : `tokens · input ${agent().inputTokens.toLocaleString()} · output ${agent().outputTokens.toLocaleString()}`}
                 </text>
                 <text fg={COLORS.muted} height={1} wrapMode="none" truncate>
                   session · {agent().childSessionId}
@@ -944,6 +986,17 @@ export function Root(props: RootProps) {
   const [slashDismissed, setSlashDismissed] = createSignal(false);
   const [historyLimit, setHistoryLimit] = createSignal(100);
   const [workingFrame, setWorkingFrame] = createSignal(0);
+  const activeChildren = createMemo(
+    () =>
+      state().agents.filter((agent) => agent.status === "queued" || agent.status === "running")
+        .length,
+  );
+  const working = createMemo(() => state().busy || activeChildren() > 0);
+  const workingDetail = createMemo(() =>
+    state().busy
+      ? state().status
+      : `${activeChildren()} child agent${activeChildren() === 1 ? "" : "s"} active`,
+  );
   let composer: TextareaRenderable | undefined;
   let conversation: ScrollBoxRenderable | undefined;
   let suppressSlashDismissalReset = false;
@@ -958,7 +1011,7 @@ export function Root(props: RootProps) {
     state().agentPanel !== undefined;
 
   createEffect(() => {
-    if (!state().busy) {
+    if (!working()) {
       setWorkingFrame(0);
       return;
     }
@@ -972,8 +1025,7 @@ export function Root(props: RootProps) {
   const unsubscribe = props.store.subscribe(setState);
   let selectedText = "";
   const rememberSelection = (selection: { getSelectedText(): string } | null): void => {
-    const text = selection?.getSelectedText() ?? "";
-    if (text.length > 0) selectedText = text;
+    selectedText = selection?.getSelectedText() ?? "";
   };
   const copySelectedInput = (sequence: string): boolean => {
     if (!renderer.hasSelection || !isCopyInputSequence(sequence)) return false;
@@ -1134,10 +1186,24 @@ export function Root(props: RootProps) {
     const current = renderer.getSelection()?.getSelectedText() ?? "";
     const text = current.length > 0 ? current : selectedText;
     if (text.length === 0) return false;
-    const copied = renderer.copyToClipboardOSC52(text);
-    props.store.update({
-      status: copied ? "selection copied" : "clipboard unavailable",
-      ...(copied ? {} : { notice: "The terminal does not report OSC 52 clipboard support." }),
+    if (renderer.copyToClipboardOSC52(text)) {
+      props.store.update({ status: "selection copied" });
+      return true;
+    }
+    const fallback = props.onCopyText?.(text);
+    if (fallback === undefined) {
+      props.store.update({
+        status: "clipboard unavailable",
+        notice: "No OSC 52 or system clipboard helper is available.",
+      });
+      return true;
+    }
+    props.store.update({ status: "copying selection" });
+    void Promise.resolve(fallback).then((copied) => {
+      props.store.update({
+        status: copied ? "selection copied" : "clipboard unavailable",
+        ...(copied ? {} : { notice: "No OSC 52 or system clipboard helper is available." }),
+      });
     });
     return true;
   };
@@ -1343,7 +1409,7 @@ export function Root(props: RootProps) {
         </box>
       </Show>
 
-      <Show when={state().busy}>
+      <Show when={working()}>
         <box
           id="brisk-working-indicator"
           height={1}
@@ -1355,7 +1421,7 @@ export function Root(props: RootProps) {
           <text fg={palette().accent} height={1} wrapMode="none" truncate>
             <strong>{BRISK_WORK_FRAMES[workingFrame()]}</strong>
             {`  Working${".".repeat((workingFrame() % 3) + 1)}`}
-            <Show when={state().status}> · {state().status}</Show>
+            <Show when={workingDetail()}> · {workingDetail()}</Show>
           </text>
         </box>
       </Show>
@@ -1501,7 +1567,12 @@ export function Root(props: RootProps) {
           </Show>
         }
       >
-        {(approval: () => UiApprovalPrompt) => <ApprovalOverlay approval={approval()} />}
+        {(approval: () => UiApprovalPrompt) => (
+          <ApprovalOverlay
+            approval={approval()}
+            {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
+          />
+        )}
       </Show>
     </box>
   );

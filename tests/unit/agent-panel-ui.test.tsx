@@ -30,7 +30,11 @@ test("agent strip and panel navigate, cancel, resize, and restore composer focus
     expect(emptyFrame).not.toContain("agents ·");
     expect(emptyFrame).not.toContain("Agent detail");
 
-    store.upsertAgent(agent("research", "running"));
+    store.upsertAgent({
+      ...agent("research", "running"),
+      outputTokens: 0,
+      activityEvents: 7,
+    });
     store.upsertAgent({
       ...agent("patch", "blocked"),
       summary: "awaiting parent decision",
@@ -39,10 +43,13 @@ test("agent strip and panel navigate, cancel, resize, and restore composer focus
 
     const stripFrame = await setup.waitForFrame((frame) => frame.includes("agents ·"));
     expect(stripFrame).toContain("/agents · 2 children · ◐ 1 running · ! 1 blocked");
+    expect(stripFrame).toContain("Working");
+    expect(stripFrame).toContain("1 child agent active");
 
     expect(store.openAgents()).toBe(true);
     const listFrame = await setup.waitForFrame((frame) => frame.includes("Agents · 2 children"));
     expect(listFrame).toContain("running · research · anthropic/claude-sonnet");
+    expect(listFrame).toContain("live · 7 events · token count pending");
     expect(listFrame).toContain("in 1,200 out 340");
     expect(setup.renderer.currentFocusedEditor).toBeNull();
 
@@ -83,6 +90,7 @@ test("agent strip and panel navigate, cancel, resize, and restore composer focus
     store.removeAgent("patch");
     await setup.flush();
     expect(setup.captureCharFrame()).not.toContain("agents ·");
+    expect(setup.captureCharFrame()).not.toContain("Working");
   } finally {
     setup.renderer.destroy();
   }

@@ -46,14 +46,21 @@ describe("HashlineWorkspace read", () => {
 
       await expect(service.read({ path: "binary.dat" })).rejects.toThrow("NUL/binary");
       await expect(service.read({ path: "invalid.txt" })).rejects.toThrow("not valid UTF-8");
+      const clamped = await service.read({
+        path: "short.txt",
+        ranges: [{ start: 1, end: 400 }],
+      });
+      expect(clamped.content).toEndWith("1:one\n2:two");
+      expect(clamped.seenLines).toEqual([1, 2]);
       await expect(
         service.read({ path: "short.txt", ranges: [{ start: 3, end: 4 }] }),
       ).rejects.toThrow("has 2 lines");
-      await expect(service.read({ path: "short.txt", maxOutputBytes: 5 })).rejects.toThrow(
+      await writeFile(path.join(root, "limited.txt"), "one\ntwo");
+      await expect(service.read({ path: "limited.txt", maxOutputBytes: 5 })).rejects.toThrow(
         "maximum is 5",
       );
       expect(
-        service.snapshots.head(service.paths.resolveRead("short.txt").canonicalPath),
+        service.snapshots.head(service.paths.resolveRead("limited.txt").canonicalPath),
       ).toBeNull();
     });
   });

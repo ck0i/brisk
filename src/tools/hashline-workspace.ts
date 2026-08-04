@@ -839,12 +839,13 @@ function selectLines(
     if (!Number.isSafeInteger(end) || end < range.start) {
       throw new HashlineWorkspaceError(`Invalid line range ${range.start}-${end}`);
     }
-    if (range.start > totalLines || end > totalLines) {
+    if (range.start > totalLines) {
       throw new HashlineWorkspaceError(
-        `Line range ${range.start}-${end} is outside ${displayPath}, which has ${totalLines} lines`,
+        `Line range ${range.start}-${end} starts outside ${displayPath}, which has ${totalLines} lines`,
       );
     }
-    for (let line = range.start; line <= end; line += 1) selected.add(line);
+    const clampedEnd = Math.min(end, totalLines);
+    for (let line = range.start; line <= clampedEnd; line += 1) selected.add(line);
   }
   return [...selected].sort((left, right) => left - right);
 }

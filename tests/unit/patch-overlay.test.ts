@@ -105,7 +105,11 @@ describe("PatchOverlayWorkspace", () => {
         "never displayed",
       );
 
-      const whole = await overlay.read({ path: "partial.txt" });
+      const whole = await overlay.read({
+        path: "partial.txt",
+        ranges: [{ start: 1, end: 400 }],
+      });
+      expect(whole.seenLines).toEqual([1, 2, 3, 4]);
       await overlay.edit({ patch: `${whole.header}\nPUT <1:\n+zero` });
       const recovered = await overlay.edit({ patch: `${whole.header}\nPUT 2.=2:\n+TWO` });
       expect(recovered.files[0]?.warnings.join("\n")).toContain("Recovered");

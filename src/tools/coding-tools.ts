@@ -98,7 +98,7 @@ function createReadTool(
   return {
     name: "read",
     description:
-      "Read a UTF-8 text file with a Hashline snapshot header and numbered edit anchors. Use line ranges for large files.",
+      "Read a UTF-8 text file with a Hashline snapshot header and numbered edit anchors. Use line ranges for large files; range ends past EOF are clamped.",
     inputSchema: READ_SCHEMA,
     readOnly: true,
     parallelSafe: true,
@@ -260,7 +260,11 @@ const READ_SCHEMA = {
         type: "object",
         properties: {
           start: { type: "integer", minimum: 1 },
-          end: { type: "integer", minimum: 1 },
+          end: {
+            type: "integer",
+            minimum: 1,
+            description: "Inclusive end line; values past EOF are clamped.",
+          },
         },
         required: ["start"],
         additionalProperties: false,

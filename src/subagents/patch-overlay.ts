@@ -386,7 +386,7 @@ export function createPatchOverlayTools(overlay: PatchOverlayWorkspace): PatchOv
     read: {
       name: "read",
       description:
-        "Read a workspace UTF-8 text file from the isolated patch overlay with an exact Hashline snapshot header and numbered anchors.",
+        "Read a workspace UTF-8 text file from the isolated patch overlay with an exact Hashline snapshot header and numbered anchors. Range ends past EOF are clamped.",
       inputSchema: READ_SCHEMA,
       readOnly: true,
       parallelSafe: true,
@@ -759,7 +759,11 @@ const READ_SCHEMA = {
         type: "object",
         properties: {
           start: { type: "integer", minimum: 1 },
-          end: { type: "integer", minimum: 1 },
+          end: {
+            type: "integer",
+            minimum: 1,
+            description: "Inclusive end line; values past EOF are clamped.",
+          },
         },
         required: ["start"],
         additionalProperties: false,
@@ -907,12 +911,13 @@ function selectLines(
     if (!Number.isSafeInteger(end) || end < range.start) {
       throw new PatchOverlayError(`Invalid line range ${range.start}-${end}`);
     }
-    if (range.start > totalLines || end > totalLines) {
+    if (range.start > totalLines) {
       throw new PatchOverlayError(
-        `Line range ${range.start}-${end} is outside ${displayPath}, which has ${totalLines} lines`,
+        `Line range ${range.start}-${end} starts outside ${displayPath}, which has ${totalLines} lines`,
       );
     }
-    for (let line = range.start; line <= end; line += 1) selected.add(line);
+    const clampedEnd = Math.min(end, totalLines);
+    for (let line = range.start; line <= clampedEnd; line += 1) selected.add(line);
   }
   return [...selected].sort((left, right) => left - right);
 }

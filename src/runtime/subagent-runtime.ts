@@ -1,3 +1,4 @@
+import type { EffortSetting } from "../config/schema.ts";
 import type { ContextManager } from "../context/context-manager.ts";
 import type { AgentLoop } from "../core/agent-loop.ts";
 import type { JsonValue, Message } from "../core/messages.ts";
@@ -26,11 +27,27 @@ import type {
 } from "../subagents/types.ts";
 import type { UiAgentIndicator, UiStore } from "../ui/state.ts";
 
+interface TaskStatusInput {
+  readonly childSessionId: string;
+  readonly wait: boolean;
+}
+
+const TASK_STATUS_SCHEMA = {
+  type: "object",
+  properties: {
+    childSessionId: { type: "string", minLength: 1 },
+    wait: { type: "boolean" },
+  },
+  required: ["childSessionId"],
+  additionalProperties: false,
+} as const;
+
 export interface RuntimeSubagentsOptions {
   readonly workspace: string;
   readonly checkpointDirectory: string;
   readonly artifactsDirectory: string;
   readonly defaultModel: string;
+  readonly defaultEffort: EffortSetting;
   readonly maxConcurrency: number;
   readonly maxDepth: number;
   readonly permissionMode: "safe" | "write" | "yolo";
@@ -49,9 +66,13 @@ export interface RuntimeSubagentsOptions {
 export class RuntimeSubagents {
   readonly manager: SubagentManager;
   readonly taskTool: ToolDefinition<TaskInput>;
+  readonly taskStatusTool: ToolDefinition<TaskStatusInput>;
   private readonly overlays = new Map<string, PatchOverlayWorkspace>();
+  private readonly completedResults = new Map<string, TaskResult>();
+  private readonly accountedChildCosts = new Set<string>();
   private readonly removeStatusListener: () => void;
   private readonly removeDecisionHandler: () => void;
+  private defaultEffort: EffortSetting;
   private disposed = false;
 
   private constructor(
@@ -59,11 +80,13 @@ export class RuntimeSubagents {
     manager: SubagentManager,
   ) {
     this.manager = manager;
+    this.defaultEffort = options.defaultEffort;
     this.removeStatusListener = manager.subscribe((info) => this.publish(info));
     this.removeDecisionHandler = options.store.setAgentDecisionHandler((id, decision) => {
       if (decision === "cancel") manager.cancel(id);
     });
     this.taskTool = this.createTaskDefinition();
+    this.taskStatusTool = this.createTaskStatusDefinition();
   }
 
   static create(options: RuntimeSubagentsOptions): RuntimeSubagents {
@@ -82,13 +105,16 @@ export class RuntimeSubagents {
           return new FakeProvider([
             {
               text: `Completed child task in ${context.mode} mode.`,
-              usage: { inputTokens: 8, outputTokens: 6 },
+              usage: { inputTokens: 8, outputTokens: 6, cost: 0.125 },
             },
           ]);
         }
         if (!options.providerService) throw new Error("Provider service is unavailable");
-        return options.providerService.createIsolatedProvider(context.model, context.childSessionId)
-          .provider;
+        return options.providerService.createIsolatedProvider(
+          context.model,
+          context.childSessionId,
+          runtime?.defaultEffort ?? options.defaultEffort,
+        ).provider;
       },
       defaultModel: options.defaultModel,
       maxConcurrency: options.maxConcurrency,
@@ -101,6 +127,9 @@ export class RuntimeSubagents {
         if (!runtime) throw new Error("Subagent runtime is not initialized");
         return await runtime.createChildTools(context);
       },
+      onChildFinished: async (info) => {
+        await runtime?.finishChild(info);
+      },
     });
     runtime = new RuntimeSubagents(options, manager);
     return runtime;
@@ -108,6 +137,10 @@ export class RuntimeSubagents {
 
   setDefaultModel(model: string): void {
     this.manager.setDefaultModel(model);
+  }
+
+  setDefaultEffort(effort: EffortSetting): void {
+    this.defaultEffort = effort;
   }
 
   openPanel(): boolean {
@@ -132,7 +165,7 @@ export class RuntimeSubagents {
     return {
       name: "task",
       description:
-        "Run a focused research or isolated patch task in a context-branched child. Address description directly to the child with the underlying work; do not ask it to spawn itself.",
+        "Start a focused research or isolated patch task in a context-branched child and return immediately. Address description directly to the child with the underlying work; do not ask it to spawn itself. Use task_status later to check or collect the result.",
       inputSchema: taskInputSchema,
       readOnly: true,
       parallelSafe: true,
@@ -150,19 +183,94 @@ export class RuntimeSubagents {
         if (!allowed) {
           return { content: "Subagent task denied by user or policy.", isError: true };
         }
-        let result = await this.manager.run(input, { signal: context.signal });
-        if (input.mode === "patch") result = await this.finalizePatch(result);
-        await this.options.session.recordChild({
-          sessionId: result.childSessionId,
-          title: input.description,
-          createdAt: new Date().toISOString(),
-        });
+        const child = await this.manager.start(input, { signal: context.signal });
         return {
-          content: serializeTaskResult(result),
-          ...(result.status === "failed" ? { isError: true } : {}),
+          content: JSON.stringify({
+            status: child.status,
+            childSessionId: child.childSessionId,
+            model: child.model,
+            mode: child.mode,
+          }),
         };
       },
     };
+  }
+
+  private createTaskStatusDefinition(): ToolDefinition<TaskStatusInput> {
+    return {
+      name: "task_status",
+      description:
+        "Check a delegated child without blocking, or wait for it when ready to collect the final result.",
+      inputSchema: TASK_STATUS_SCHEMA,
+      readOnly: true,
+      parallelSafe: true,
+      timeoutMs: SUBAGENT_TASK_TIMEOUT_MS,
+      parse: parseTaskStatusInput,
+      execute: async (input, context) => {
+        const current = this.manager.get(input.childSessionId);
+        if (!current) {
+          return { content: `Unknown child session: ${input.childSessionId}`, isError: true };
+        }
+        if (input.wait && (current.status === "queued" || current.status === "running")) {
+          await this.manager.wait(input.childSessionId, context.signal);
+        }
+        const info = this.manager.get(input.childSessionId);
+        if (!info) {
+          return { content: `Unknown child session: ${input.childSessionId}`, isError: true };
+        }
+        const result = this.completedResults.get(input.childSessionId) ?? info.result;
+        if (result) {
+          return {
+            content: serializeTaskResult(result),
+            ...(result.status === "failed" ? { isError: true } : {}),
+          };
+        }
+        return {
+          content: JSON.stringify({
+            status: info.status,
+            childSessionId: info.childSessionId,
+            model: info.model,
+            mode: info.mode,
+          }),
+        };
+      },
+    };
+  }
+
+  private async finishChild(info: ChildSessionInfo): Promise<void> {
+    if (info.result) {
+      const result = info.mode === "patch" ? await this.finalizePatch(info.result) : info.result;
+      this.completedResults.set(info.childSessionId, result);
+    }
+    try {
+      await this.options.session.recordChild({
+        sessionId: info.childSessionId,
+        title: info.description,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      this.options.store.update({
+        status: "child reference persistence failed",
+        notice: `Unable to persist child reference: ${errorMessage(error)}`,
+      });
+    }
+    await this.accountChildCost(info);
+  }
+
+  private async accountChildCost(info: ChildSessionInfo): Promise<void> {
+    if (this.accountedChildCosts.has(info.childSessionId)) return;
+    this.accountedChildCosts.add(info.childSessionId);
+    const cost = info.usage.cost ?? 0;
+    if (!Number.isFinite(cost) || cost <= 0) return;
+    this.options.store.update({ cost: this.options.store.snapshot.cost + cost });
+    try {
+      await this.options.session.recordSubagentCost(cost);
+    } catch (error) {
+      this.options.store.update({
+        status: "subagent cost persistence failed",
+        notice: `Unable to persist subagent cost: ${errorMessage(error)}`,
+      });
+    }
   }
 
   private async createChildTools(context: ChildToolContext): Promise<ToolRegistry> {
@@ -244,6 +352,9 @@ async function createChildAdapter(
     async append(message: Message) {
       await options.session.repository.append(context.childSessionId, entryForMessage(message));
     },
+    async appendUsage(usage) {
+      await options.session.repository.append(context.childSessionId, { type: "usage", usage });
+    },
     async flush() {
       await options.session.repository.flush();
     },
@@ -287,4 +398,25 @@ function toUiAgent(info: ChildSessionInfo): UiAgentIndicator {
 
 export function parseRuntimeTaskInput(value: JsonValue): TaskInput {
   return parseTaskInput(value);
+}
+
+function parseTaskStatusInput(value: JsonValue): TaskStatusInput {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("arguments must be an object");
+  }
+  const object = value as Readonly<Record<string, JsonValue>>;
+  for (const key of Object.keys(object)) {
+    if (key !== "childSessionId" && key !== "wait") throw new TypeError(`${key} is not allowed`);
+  }
+  if (typeof object.childSessionId !== "string" || object.childSessionId.trim().length === 0) {
+    throw new TypeError("childSessionId must be a non-empty string");
+  }
+  if (object.wait !== undefined && typeof object.wait !== "boolean") {
+    throw new TypeError("wait must be a boolean");
+  }
+  return { childSessionId: object.childSessionId.trim(), wait: object.wait ?? false };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

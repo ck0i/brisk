@@ -32,9 +32,11 @@ export class SubagentManager {
   private readonly additionalSystemPrompt: readonly string[];
   private readonly childSessionFactory: SubagentManagerOptions["childSessionFactory"];
   private readonly childToolsFactory: SubagentManagerOptions["childToolsFactory"];
+  private readonly onChildFinished: SubagentManagerOptions["onChildFinished"];
   private readonly createChildSessionId: () => string;
   private readonly semaphore: Semaphore;
   private readonly sessions = new Map<string, ChildSession>();
+  private readonly backgroundRuns = new Map<string, Promise<TaskResult>>();
   private readonly pendingCheckpoints = new Map<CheckpointFactory, Promise<Checkpoint>>();
   private readonly listeners = new Set<SubagentManagerListener>();
 
@@ -47,6 +49,7 @@ export class SubagentManager {
     this.additionalSystemPrompt = [...(options.additionalSystemPrompt ?? [])];
     this.childSessionFactory = options.childSessionFactory;
     this.childToolsFactory = options.childToolsFactory;
+    this.onChildFinished = options.onChildFinished;
     this.createChildSessionId = options.createChildSessionId ?? randomUUID;
     this.semaphore = new Semaphore(options.maxConcurrency ?? 3);
 
@@ -80,6 +83,51 @@ export class SubagentManager {
       if (!result) throw new Error("Subagent result invariant failed");
       return result;
     });
+  }
+
+  async start(input: TaskInput, options: SubagentRunOptions = {}): Promise<ChildSessionInfo> {
+    const parsed = parseTaskInput(input as unknown as JsonValue);
+    const parentDepth = options.depth ?? 0;
+    if (!Number.isSafeInteger(parentDepth) || parentDepth < 0) {
+      throw new RangeError("depth must be a non-negative integer");
+    }
+    const source = options.createCheckpoint ?? this.createCheckpointCallback;
+    const checkpoint = await this.resolveCheckpoint(source, options.signal);
+    const session = this.createSession(parsed, checkpoint, parentDepth + 1);
+    const unlink = linkAbortSignal(options.signal, session.controller);
+    const execution = (async (): Promise<TaskResult> => {
+      try {
+        if (parentDepth >= this.maxDepth) {
+          const result: TaskResult = {
+            status: "blocked",
+            summary: "Maximum subagent depth reached.",
+            blockers: [`Maximum depth is ${this.maxDepth}.`],
+            childSessionId: session.childSessionId,
+          };
+          session.finish(result);
+          this.publish(session);
+          await this.onChildFinished?.(session.inspect());
+          return result;
+        }
+        return await this.runChild(session);
+      } finally {
+        unlink();
+        this.checkpointStore.release(checkpoint.id);
+      }
+    })();
+    this.backgroundRuns.set(session.childSessionId, execution);
+    void execution.catch(() => undefined);
+    return session.inspect();
+  }
+
+  async wait(childSessionId: string, signal?: AbortSignal): Promise<TaskResult> {
+    const session = this.sessions.get(childSessionId);
+    if (!session) throw new Error(`Unknown child session: ${childSessionId}`);
+    const execution = this.backgroundRuns.get(childSessionId);
+    if (execution) await waitWithSignal(execution, signal);
+    const result = session.result;
+    if (!result) throw new Error(`Child session ${childSessionId} has not completed`);
+    return result;
   }
 
   async runMany(
@@ -320,6 +368,7 @@ export class SubagentManager {
     };
     session.finish(finalResult, cancelled);
     this.publish(session);
+    await this.onChildFinished?.(session.inspect());
     return finalResult;
   }
 
@@ -400,6 +449,26 @@ function isAbort(error: unknown): boolean {
 
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw signal.reason ?? new DOMException("Operation aborted", "AbortError");
+}
+
+async function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return await promise;
+  throwIfAborted(signal);
+  return await new Promise<T>((resolve, reject) => {
+    const abort = (): void =>
+      reject(signal.reason ?? new DOMException("Operation aborted", "AbortError"));
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function linkAbortSignal(source: AbortSignal | undefined, target: AbortController): () => void {

@@ -5,7 +5,8 @@ export interface SlashCommand {
 
 export const BUILT_IN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "/help", description: "show keys and commands" },
-  { name: "/model", description: "select a provider/model" },
+  { name: "/model", description: "select a provider/model and reasoning effort" },
+  { name: "/effort", description: "select main-agent reasoning effort" },
   { name: "/login", description: "sign in to an OAuth provider" },
   { name: "/logout", description: "remove a local provider grant" },
   { name: "/new", description: "start a new session" },

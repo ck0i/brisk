@@ -74,6 +74,7 @@ describe("RuntimeSubagents", () => {
       checkpointDirectory: join(root, "checkpoints"),
       artifactsDirectory: join(root, "artifacts"),
       defaultModel: "fake/child",
+      defaultEffort: "auto",
       maxConcurrency: 3,
       maxDepth: 1,
       permissionMode: "write",
@@ -86,7 +87,8 @@ describe("RuntimeSubagents", () => {
       store,
     });
     expect(runtime.taskTool.timeoutMs).toBe(SUBAGENT_TASK_TIMEOUT_MS);
-    const registry = new ToolRegistry().register(runtime.taskTool);
+    expect(runtime.taskStatusTool.timeoutMs).toBe(SUBAGENT_TASK_TIMEOUT_MS);
+    const registry = new ToolRegistry().register(runtime.taskTool).register(runtime.taskStatusTool);
     const progress: Array<{ status: string; transcriptLength: number }> = [];
     const unsubscribe = store.subscribe((snapshot) => {
       const agent = snapshot.agents[0];
@@ -110,13 +112,31 @@ describe("RuntimeSubagents", () => {
     );
 
     expect(toolResult?.isError).not.toBe(true);
-    const parsed = JSON.parse(toolResult?.content ?? "{}") as {
+    const launch = JSON.parse(toolResult?.content ?? "{}") as {
       childSessionId?: string;
+      status?: string;
+    };
+    expect(["queued", "running", "completed"]).toContain(launch.status ?? "");
+    expect(launch.childSessionId).toBeString();
+    const childId = launch.childSessionId ?? "";
+    const [statusResult] = await registry.execute(
+      [
+        {
+          id: "task-status-1",
+          name: "task_status",
+          arguments: JSON.stringify({ childSessionId: childId, wait: true }),
+        },
+      ],
+      new AbortController().signal,
+    );
+    const completed = JSON.parse(statusResult?.content ?? "{}") as {
+      status?: string;
       summary?: string;
     };
-    expect(parsed.summary).toContain("Completed child task");
-    expect(parsed.childSessionId).toBeString();
-    const childId = parsed.childSessionId ?? "";
+    expect(completed).toMatchObject({
+      status: "completed",
+      summary: expect.stringContaining("Completed child task"),
+    });
     expect(runtime.manager.getTranscript(childId)?.map((message) => message.content)).toEqual([
       "Inspect parser",
       "Completed child task in research mode.",
@@ -127,10 +147,24 @@ describe("RuntimeSubagents", () => {
       "Inspect parser",
       "Completed child task in research mode.",
     ]);
+    expect(child.metadata.usageTotals).toMatchObject({
+      inputTokens: 8,
+      outputTokens: 6,
+      totalTokens: 14,
+      cost: 0.125,
+    });
+    expect(store.snapshot.cost).toBe(0.125);
     await session.flush();
-    expect((await session.repository.open(session.sessionId)).metadata.childRefs).toContainEqual(
+    const parent = await session.repository.open(session.sessionId);
+    expect(parent.metadata.childRefs).toContainEqual(
       expect.objectContaining({ sessionId: childId, title: "Inspect parser" }),
     );
+    expect(parent.metadata.usageTotals).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      cost: 0.125,
+    });
     expect(progress).toContainEqual({ status: "running", transcriptLength: 1 });
     expect(store.snapshot.agents[0]).toMatchObject({
       childSessionId: childId,
@@ -178,6 +212,7 @@ describe("RuntimeSubagents", () => {
       checkpointDirectory: join(root, "checkpoints"),
       artifactsDirectory: join(root, "artifacts"),
       defaultModel: "fake/child",
+      defaultEffort: "auto",
       maxConcurrency: 2,
       maxDepth: 1,
       permissionMode: "write",
@@ -189,13 +224,24 @@ describe("RuntimeSubagents", () => {
       session,
       store,
     });
-    const registry = new ToolRegistry().register(runtime.taskTool);
-    await registry.execute(
+    const registry = new ToolRegistry().register(runtime.taskTool).register(runtime.taskStatusTool);
+    const [launchResult] = await registry.execute(
       [
         {
           id: "patch",
           name: "task",
           arguments: JSON.stringify({ description: "Patch value", mode: "patch" }),
+        },
+      ],
+      new AbortController().signal,
+    );
+    const launch = JSON.parse(launchResult?.content ?? "{}") as { childSessionId?: string };
+    await registry.execute(
+      [
+        {
+          id: "patch-status",
+          name: "task_status",
+          arguments: JSON.stringify({ childSessionId: launch.childSessionId, wait: true }),
         },
       ],
       new AbortController().signal,

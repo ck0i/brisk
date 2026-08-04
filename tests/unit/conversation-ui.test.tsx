@@ -85,6 +85,60 @@ test("first render focuses the multiline composer and accepts a large paste", as
   }
 });
 
+test("composer expands for soft-wrapped sentences and caps its visible rows", async () => {
+  const store = new UiStore("fixture");
+  const setup = await renderRoot(store, 48, 20);
+  try {
+    await setup.renderOnce();
+    const sentence = Array.from({ length: 24 }, (_, index) => `sentence-${index}.`).join(" ");
+    await setup.mockInput.typeText(sentence);
+    await setup.waitFor(() => {
+      const editor = setup.renderer.currentFocusedEditor;
+      return (
+        editor !== null && editor.editorView.getTotalVirtualLineCount() > 1 && editor.height > 1
+      );
+    });
+    const editor = setup.renderer.currentFocusedEditor;
+    expect(editor?.editorView.getTotalVirtualLineCount()).toBeGreaterThan(6);
+    expect(editor?.height).toBe(6);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("Ctrl+C clears composer input and Ctrl+D exits", async () => {
+  const store = new UiStore("fixture");
+  store.update({ busy: true });
+  let aborts = 0;
+  let exits = 0;
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={() => true}
+        onAbort={() => (aborts += 1)}
+        onExit={() => (exits += 1)}
+      />
+    ),
+    { width: 48, height: 20, exitOnCtrlC: false },
+  );
+  try {
+    await setup.renderOnce();
+    await setup.mockInput.typeText("draft that should be cleared rather than aborting or exiting");
+    setup.mockInput.pressKey("c", { ctrl: true });
+    await setup.waitFor(() => setup.renderer.currentFocusedEditor?.plainText === "");
+    expect(setup.renderer.currentFocusedEditor?.height).toBe(1);
+    expect(aborts).toBe(0);
+    expect(exits).toBe(0);
+
+    setup.mockInput.pressKey("d", { ctrl: true });
+    expect(exits).toBe(1);
+    expect(aborts).toBe(0);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("composer clears on send and preserves a newer draft when the request finishes", async () => {
   const store = new UiStore("fixture");
   const submissions: string[] = [];

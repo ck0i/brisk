@@ -1,86 +1,49 @@
 # Configuration
 
-Brisk reads JSONC: comments and trailing commas are accepted. Inline secrets are not.
+Brisk reads **JSONC** (comments and trailing commas). Inline secrets are rejected.
 
 ## Precedence
 
-Layers are merged in this order, from lowest to highest priority:
+Built-in defaults → global `config.jsonc` → project `.brisk/config.jsonc` → CLI flags → in-process overrides. Objects merge recursively; arrays and scalars replace lower layers.
 
-1. Built-in defaults
-2. Global `config.jsonc`
-3. Project `.brisk/config.jsonc`
-4. CLI overrides such as `--model` and `--permission-mode`
-5. In-process runtime overrides
+`/reload` rereads files; **provider definition changes apply on the next session**. Failed reload keeps the last good in-memory config.
 
-Objects merge recursively. Arrays and scalar values replace the lower layer. Project configuration is resolved from the canonical workspace selected at startup. `/reload` rereads file layers; provider-definition changes are intentionally deferred until the next session initialization. A failed reload does not replace the last valid in-memory configuration.
+## Paths
 
-Unknown fields produce warnings and are ignored. Type/range errors, JSONC syntax errors, inline secret-like provider fields, and endpoint URLs containing user information are fatal. Diagnostics include the source file and JSON path.
+| Platform | Global config                                      |
+| -------- | -------------------------------------------------- |
+| Linux    | `${XDG_CONFIG_HOME:-~/.config}/brisk/config.jsonc` |
+| macOS    | `~/Library/Application Support/Brisk/config.jsonc` |
+| Windows  | `%APPDATA%\Brisk\config.jsonc`                     |
 
-## Configuration paths
+Project file: `<workspace>/.brisk/config.jsonc`.
 
-| Platform | Global configuration                               | Project configuration             |
-| -------- | -------------------------------------------------- | --------------------------------- |
-| Linux    | `${XDG_CONFIG_HOME:-~/.config}/brisk/config.jsonc` | `<workspace>/.brisk/config.jsonc` |
-| macOS    | `~/Library/Application Support/Brisk/config.jsonc` | `<workspace>/.brisk/config.jsonc` |
-| Windows  | `%APPDATA%\Brisk\config.jsonc`                     | `<workspace>\.brisk\config.jsonc` |
+**Data** (sessions, `auth.db`, artifacts, checkpoints): Linux `~/.local/share/brisk` (or `XDG_DATA_HOME`), macOS `~/Library/Application Support/Brisk`, Windows `%APPDATA%\Brisk`. **Cache** (model catalog): parallel cache roots. POSIX data dirs use mode `0700` where supported.
 
-Linux uses `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, and `XDG_CACHE_HOME` only when they are absolute; otherwise it uses the standard home-directory defaults. Windows similarly requires absolute `APPDATA` and `LOCALAPPDATA` values.
+User `AGENTS.md` lives beside global config; workspace `AGENTS.md` files override by directory depth. See [Usage](USAGE.md).
 
-The optional user-level instruction file is `AGENTS.md` beside the global `config.jsonc`: `${XDG_CONFIG_HOME:-~/.config}/brisk/AGENTS.md` on Linux, `~/Library/Application Support/Brisk/AGENTS.md` on macOS, and `%APPDATA%\Brisk\AGENTS.md` on Windows. Brisk injects it as a fallback instruction block. Applicable `<workspace>/**/AGENTS.md` files have higher precedence, with deeper files overriding shallower files for their directory subtree. Discovery runs at startup and `/reload`, before the next conversation context is sent to the provider.
-
-Related state locations:
-
-| State                   | Linux                                    | macOS                                 | Windows                      |
-| ----------------------- | ---------------------------------------- | ------------------------------------- | ---------------------------- |
-| Data root               | `${XDG_DATA_HOME:-~/.local/share}/brisk` | `~/Library/Application Support/Brisk` | `%APPDATA%\Brisk`            |
-| Cache root              | `${XDG_CACHE_HOME:-~/.cache}/brisk`      | `~/Library/Caches/Brisk`              | `%LOCALAPPDATA%\Brisk\Cache` |
-| Sessions                | `<data>/sessions/*.jsonl`                | same                                  | same                         |
-| Session index           | `<data>/session-index.json`              | same                                  | same                         |
-| Artifacts               | `<data>/artifacts`                       | same                                  | same                         |
-| OAuth/API auth database | `<data>/auth.db`                         | same                                  | same                         |
-| Model cache             | `<cache>/models.json`                    | same                                  | same                         |
-| Subagent checkpoints    | `<data>/checkpoints`                     | same                                  | same                         |
-
-Brisk creates private data directories with mode `0700` and sensitive files with mode `0600` on POSIX systems. Windows access is governed by the account's ACLs.
-
-## Full example
+## Example
 
 ```jsonc
 {
-  // provider/model; omit to select interactively
   "defaultModel": "anthropic/claude-sonnet-4-5",
-
-  // optional child default; omit to inherit the active parent model
-  "defaultSubtaskModel": "openai-codex/gpt-5.6-luna",
-
-  // safe | write | yolo
   "permissionMode": "write",
-
-  // zero disables child-agent creation in the interactive runtime
   "maxSubagents": 3,
   "maxSubagentDepth": 1,
-
   "compaction": {
     "enabled": true,
     "thresholdPercent": 85,
     "keepRecentTokens": 20000,
   },
-
-  "ui": {
-    "theme": "default",
-    "showThinking": false,
-  },
-
+  "ui": { "theme": "default", "showThinking": false },
   "providers": {
     "local-vllm": {
       "type": "openai-compatible",
       "baseUrl": "http://127.0.0.1:8000/v1",
       "keyless": true,
-      "api": "openai-completions",
       "models": [
         {
           "id": "my-model",
-          "name": "Local model",
           "contextWindow": 131072,
           "maxOutputTokens": 32768,
           "input": ["text"],
@@ -94,105 +57,42 @@ Brisk creates private data directories with mode `0700` and sensitive files with
 
 ## Fields
 
-### Model and permissions
+| Field                               | Notes                                                                                           |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `defaultModel`                      | `provider/model`; availability depends on credentials                                           |
+| `defaultSubtaskModel`               | Optional child default; else inherits parent model                                              |
+| `effort`                            | Main reasoning: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`            |
+| `subtaskEffort`                     | Default child reasoning effort; same values as `effort`                                         |
+| `permissionMode`                    | `safe`, `write`, or prompt-free `yolo` (default `write`); hard-blocked operations remain denied |
+| `maxSubagents` / `maxSubagentDepth` | Concurrency and nesting; `0` disables children                                                  |
+| `compaction.enabled`                | Automatic threshold compaction (default `true`)                                                 |
+| `compaction.thresholdPercent`       | 1–100 (default `85`)                                                                            |
+| `compaction.keepRecentTokens`       | Recent tail target (default `20000`)                                                            |
+| `ui.theme`                          | `default` or `high-contrast`                                                                    |
+| `ui.showThinking`                   | Expand thinking blocks by default                                                               |
 
-- `defaultModel`: non-empty `provider/model` string used for initial selection. Availability is still checked against credentials and the catalog.
-- `defaultSubtaskModel`: optional non-empty `provider/model` used by `task` when its call omits `model`. When absent, children inherit the active parent model. A per-task model remains an explicit override. Unavailable models and models without tool support fall back to the parent model.
-- `permissionMode`: `safe`, `write`, or `yolo`; default `write`. See the security section in the README. CLI `--permission-mode` has higher precedence.
-
-### Subagents
-
-- `maxSubagents`: non-negative integer; default `3`. It is the maximum number of concurrently running children. `0` disables interactive subagent setup.
-- `maxSubagentDepth`: non-negative integer; default `1`. Root tasks are depth zero, so the default allows one child level. `0` disables interactive subagent setup.
-
-Children branch from an immutable prepared-context checkpoint. Research children have read/search/find/list/bash tools. Patch children mutate an isolated overlay and return a diff rather than writing the workspace.
-
-### Compaction
-
-- `compaction.thresholdPercent`: integer `1` through `100`; default `85`. Automatic compaction starts at this percentage of a known context window.
-- `compaction.keepRecentTokens`: positive integer; default `20000`. Approximate recent-history target retained after an ordinary compaction. Overflow recovery uses a smaller target.
-- `compaction.enabled`: enables threshold-triggered automatic compaction; default `true`. Setting it to `false` retains explicit `/compact` and the one-shot overflow recovery path.
-
-A model with an unknown context window has no automatic threshold. `/compact` remains available. Snapcompact is loaded only when a compaction pass runs. Vision-capable models may receive rendered archive frames; other models receive deterministic text fallback.
-
-### UI
-
-- `ui.theme`: `default` or `high-contrast`; default `default`.
-- `ui.showThinking`: expands thinking blocks by default when `true`; default `false`. Tab can still collapse or expand the latest block.
-
-Both fields apply on startup and `/reload`.
-
-`/settings` opens the mounted interactive editor for the scalar settings above. Changes are written atomically to the global JSONC file, preserving unrelated fields and comments, then the runtime is reloaded when the menu closes. Numeric prompts accept `default` to remove the global override. Custom provider/model definitions remain file-edited because they contain nested endpoint and capability schemas.
+`/settings` edits global scalars interactively and reloads the runtime when closed.
 
 ## Custom OpenAI-compatible providers
 
-Every custom provider requires:
-
-- `type`: exactly `openai-compatible`.
-- `baseUrl`: an absolute URL with no embedded username or password. Include the service's API prefix, commonly `/v1`.
-- `models`: at least one model record.
-- Authentication through exactly the intended route: `keyless: true`, or `apiKeyEnv` naming an environment variable available to Brisk.
-
-Optional `api` selects `openai-completions` (the default) or `openai-responses`.
-
-A model record contains:
-
-- `id`: non-empty endpoint model ID.
-- `name`: optional display name.
-- `contextWindow`: positive integer.
-- `maxOutputTokens`: positive integer.
-- `input`: non-empty array containing `text` and optionally `image`.
-- `toolCalling`: boolean.
-- `compat`: optional prompt-cache capability overrides for endpoints whose URL cannot be auto-detected. Supported fields are `cacheControlFormat: "anthropic"`, `promptCacheSessionHeader: "x-grok-conv-id"`, `supportsPromptCacheBreakpoints`, `promptCacheBreakpointTtl: "30m"`, and `supportsLongPromptCacheRetention`.
-
-Leave `compat` unset for known providers because `@oh-my-pi/pi-catalog` derives the correct capabilities. Only opt a custom endpoint into fields its server actually accepts.
+Required: `type: "openai-compatible"`, absolute `baseUrl` (no embedded credentials), `models[]` with `id`, `contextWindow`, `maxOutputTokens`, `input`, `toolCalling`. Set optional model field `reasoning` when a custom model supports it. Auth: `keyless: true` **or** `apiKeyEnv` (variable **name** only). Optional `api`: `openai-completions` (default) or `openai-responses`.
 
 Authenticated example:
 
 ```jsonc
-{
-  "providers": {
-    "company-gateway": {
-      "type": "openai-compatible",
-      "baseUrl": "https://ai.example.net/v1",
-      "apiKeyEnv": "COMPANY_AI_TOKEN",
-      "api": "openai-responses",
-      "models": [
-        {
-          "id": "coding-model",
-          "contextWindow": 200000,
-          "maxOutputTokens": 32000,
-          "input": ["text", "image"],
-          "toolCalling": true,
-        },
-      ],
-    },
+"providers": {
+  "company-gateway": {
+    "type": "openai-compatible",
+    "baseUrl": "https://ai.example.net/v1",
+    "apiKeyEnv": "COMPANY_AI_TOKEN",
+    "models": [{ "id": "coding-model", "contextWindow": 200000, "maxOutputTokens": 32000, "input": ["text"], "toolCalling": true }],
   },
 }
 ```
-
-Launch with the secret in the environment, not the JSONC file:
 
 ```sh
 export COMPANY_AI_TOKEN='...'
 brisk --model company-gateway/coding-model
 ```
 
-Brisk rejects provider fields named like `apiKey`, `token`, `accessToken`, `secret`, `password`, or `authorization`, including common dash/underscore variants. `apiKeyEnv` stores only the variable name.
-
-## Credential configuration
-
-Ordinary provider API keys are resolved through `@oh-my-pi/pi-ai` environment mappings. At minimum, common providers use:
-
-| Provider path               | Environment variable       |
-| --------------------------- | -------------------------- |
-| Anthropic API               | `ANTHROPIC_API_KEY`        |
-| OpenAI API                  | `OPENAI_API_KEY`           |
-| Google Gemini API           | `GEMINI_API_KEY`           |
-| Anthropic OAuth override    | `ANTHROPIC_OAUTH_TOKEN`    |
-| OpenAI Codex OAuth override | `OPENAI_CODEX_OAUTH_TOKEN` |
-| Cursor override             | `CURSOR_ACCESS_TOKEN`      |
-
-`brisk auth status` shows all provider environment mappings recognized by the installed catalog and which are configured, without revealing values. Brisk has no CLI that writes a raw API key into configuration. OAuth login writes a grant to `auth.db`; custom endpoint keys stay in their named environment variables.
-
-See [Providers and authentication](PROVIDERS.md) for OAuth commands, API/OAuth distinctions, and the mandatory manual account-verification caveat.
+API keys and OAuth: [Providers](PROVIDERS.md).

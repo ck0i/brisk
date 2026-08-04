@@ -130,12 +130,18 @@ export class ChildSession {
 
   private record(event: AgentEvent): void {
     const message = messageForEvent(event);
-    if (!message) return;
-    this.messages.push(message);
+    if (message) this.messages.push(message);
     if (!this.adapter || this.persistenceFailure) return;
+    const persist =
+      message !== undefined
+        ? () => this.adapter?.append(message)
+        : event.type === "usage" && this.adapter.appendUsage
+          ? () => this.adapter?.appendUsage?.(event.usage)
+          : undefined;
+    if (!persist) return;
     this.writeQueue = this.writeQueue
       .then(async () => {
-        await this.adapter?.append(message);
+        await persist();
       })
       .catch((error: unknown) => {
         this.persistenceFailure = error instanceof Error ? error : new Error(String(error));

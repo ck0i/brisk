@@ -46,6 +46,7 @@ export interface ChildProviderContext {
 
 export interface ChildSessionAdapter {
   append(message: Message): void | Promise<void>;
+  appendUsage?(usage: Usage): void | Promise<void>;
   flush?(): void | Promise<void>;
   close?(): void | Promise<void>;
 }
@@ -92,6 +93,7 @@ export interface SubagentManagerOptions {
     context: ChildSessionAdapterContext,
   ) => ChildSessionAdapter | Promise<ChildSessionAdapter>;
   readonly childToolsFactory?: (context: ChildToolContext) => ToolRegistry | Promise<ToolRegistry>;
+  readonly onChildFinished?: (info: ChildSessionInfo) => void | Promise<void>;
   readonly createChildSessionId?: () => string;
 }
 

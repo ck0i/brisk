@@ -54,6 +54,7 @@ describe("RuntimeExtensions", () => {
       globalDirectory,
       errorsPath,
       approvalHandler,
+      permissionMode: "write",
       store,
     });
 
@@ -120,6 +121,37 @@ describe("RuntimeExtensions", () => {
     expect(store.snapshot.extensionKeybindings).toEqual([]);
   });
 
+  test("loads project extensions without approval in yolo mode", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-runtime-extension-yolo-"));
+    roots.push(root);
+    const workspace = join(root, "workspace");
+    const globalDirectory = join(root, "global");
+    const projectDirectory = join(workspace, ".brisk", "extensions");
+    await mkdir(projectDirectory, { recursive: true });
+    await writeFile(
+      join(projectDirectory, "project.ts"),
+      "export default function activate(ctx) { ctx.contributeUi({ id: 'yolo', slot: 'status', text: 'loaded' }); }\n",
+    );
+    let approvals = 0;
+    const runtime = new RuntimeExtensions({
+      workspace,
+      globalDirectory,
+      errorsPath: join(globalDirectory, "errors.json"),
+      approvalHandler: {
+        async requestApproval() {
+          approvals += 1;
+          return "deny";
+        },
+      },
+      permissionMode: "yolo",
+      store: new UiStore("fixture"),
+    });
+
+    expect(await runtime.load()).toMatchObject({ loaded: 1, denied: 0 });
+    expect(approvals).toBe(0);
+    await runtime.dispose();
+  });
+
   test("redacts extension failures in results and the doctor error report", async () => {
     const root = await mkdtemp(join(tmpdir(), "brisk-runtime-extension-errors-"));
     roots.push(root);
@@ -142,6 +174,7 @@ describe("RuntimeExtensions", () => {
       globalDirectory,
       errorsPath: join(globalDirectory, "errors.json"),
       approvalHandler: { requestApproval: async () => "deny" },
+      permissionMode: "write",
       store,
     });
     await runtime.load();

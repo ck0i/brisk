@@ -5,6 +5,7 @@ import type {
   Usage as PiUsage,
 } from "@oh-my-pi/pi-ai";
 import * as PiError from "@oh-my-pi/pi-ai/error";
+import { kCursorExecResolved } from "@oh-my-pi/pi-ai/utils/block-symbols";
 import { getHeadersFromError, getRetryAfterMsFromHeaders } from "@oh-my-pi/pi-ai/utils/retry-after";
 
 import {
@@ -53,13 +54,23 @@ export function normalizeAssistantMessageEvent(
           index: event.contentIndex,
           id: block.id,
           name: block.name,
+          ...(isCursorResolved(block) ? { resolved: true } : {}),
         },
       ];
     }
     case "toolcall_delta":
       return [{ type: "tool_call_delta", index: event.contentIndex, delta: event.delta }];
-    case "toolcall_end":
-      return [{ type: "tool_call_end", index: event.contentIndex }];
+    case "toolcall_end": {
+      const arguments_ = serializeToolArguments(event.toolCall.arguments);
+      return [
+        {
+          type: "tool_call_end",
+          index: event.contentIndex,
+          ...(arguments_ === undefined ? {} : { arguments: arguments_ }),
+          ...(isCursorResolved(event.toolCall) ? { resolved: true } : {}),
+        },
+      ];
+    }
     case "done":
       return [
         { type: "usage", usage: normalizeUsage(event.message.usage) },
@@ -89,6 +100,19 @@ export function normalizeAssistantMessageEvent(
       return [];
     case "image_end":
       throw invalidEvent("pi-ai emitted an image output, which Brisk does not support yet");
+  }
+}
+
+function isCursorResolved(value: object): boolean {
+  return (value as { readonly [kCursorExecResolved]?: true })[kCursorExecResolved] === true;
+}
+
+function serializeToolArguments(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return undefined;
   }
 }
 

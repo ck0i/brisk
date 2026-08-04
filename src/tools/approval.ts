@@ -92,6 +92,13 @@ export class PermissionManager {
         riskDescription: risks.map((risk) => risk.reason).join(" "),
       };
     }
+    if (this.mode === "yolo") {
+      return {
+        action: "allow",
+        risks,
+        riskDescription: "Allowed without prompting in yolo mode.",
+      };
+    }
 
     const policyRisk = policyPromptReason(
       toolName,

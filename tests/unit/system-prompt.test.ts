@@ -58,6 +58,18 @@ describe("Brisk system prompt", () => {
     ]);
   });
 
+  test("requires task calls to omit model unless the user explicitly selected one", () => {
+    const prompt = buildSystemPrompt([
+      { name: "task", description: "Run child", inputSchema: objectSchema },
+    ]);
+
+    expect(prompt.at(-2)).toContain("if the user did not explicitly specify a model");
+    expect(prompt.at(-2)).toContain("starts the child in the background");
+    expect(prompt.at(-2)).toContain("continue useful work yourself");
+    expect(prompt.at(-1)).toContain("MUST omit model from the tool call entirely");
+    expect(prompt.at(-1)).toContain("configured default subtask model");
+  });
+
   test("supports an explicit delegated session role", () => {
     const childRole = "delegated child role";
     expect(buildSystemPrompt([], [], childRole)).toEqual([

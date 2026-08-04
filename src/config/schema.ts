@@ -4,6 +4,17 @@ const nonEmptyString = z.string().trim().min(1);
 const positiveInteger = z.number().int().positive();
 const nonNegativeInteger = z.number().int().nonnegative();
 
+export const effortSettingSchema = z.enum([
+  "auto",
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+]);
+
 const promptCacheCompatSchema = z.object({
   cacheControlFormat: z.literal("anthropic").optional(),
   promptCacheSessionHeader: z.literal("x-grok-conv-id").optional(),
@@ -18,6 +29,7 @@ export const customModelSchema = z.object({
   maxOutputTokens: positiveInteger,
   input: z.array(z.enum(["text", "image"])).min(1),
   toolCalling: z.boolean(),
+  reasoning: z.boolean().optional(),
   name: nonEmptyString.optional(),
   compat: promptCacheCompatSchema.optional(),
 });
@@ -40,6 +52,8 @@ export const customProviderSchema = z.object({
 export const configSchema = z.object({
   defaultModel: nonEmptyString.optional(),
   defaultSubtaskModel: nonEmptyString.optional(),
+  effort: effortSettingSchema.default("auto"),
+  subtaskEffort: effortSettingSchema.default("auto"),
   permissionMode: z.enum(["safe", "write", "yolo"]).default("write"),
   maxSubagents: nonNegativeInteger.default(3),
   maxSubagentDepth: nonNegativeInteger.default(1),
@@ -71,6 +85,8 @@ const customProviderLayerSchema = z.object({
 export const configLayerSchema = z.object({
   defaultModel: configSchema.shape.defaultModel,
   defaultSubtaskModel: configSchema.shape.defaultSubtaskModel,
+  effort: effortSettingSchema.optional(),
+  subtaskEffort: effortSettingSchema.optional(),
   permissionMode: z.enum(["safe", "write", "yolo"]).optional(),
   maxSubagents: nonNegativeInteger.optional(),
   maxSubagentDepth: nonNegativeInteger.optional(),
@@ -93,6 +109,7 @@ export const configLayerSchema = z.object({
 export type CustomModelConfig = z.infer<typeof customModelSchema>;
 export type CustomProviderConfig = z.infer<typeof customProviderSchema>;
 export type BriskConfig = z.infer<typeof configSchema>;
+export type EffortSetting = z.infer<typeof effortSettingSchema>;
 export type ConfigOverrides = z.infer<typeof configLayerSchema>;
 
 export const DEFAULT_CONFIG: BriskConfig = configSchema.parse({});

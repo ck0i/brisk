@@ -3,13 +3,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
+import type { Effort } from "@oh-my-pi/pi-catalog/effort";
+import { buildModel } from "@oh-my-pi/pi-catalog/build";
+
 import { resolveConfigPaths } from "../../src/config/paths.ts";
 import { configSchema } from "../../src/config/schema.ts";
 import {
   ConfigCredentialResolver,
   ProviderService,
   customModelsFromConfig,
+  resolveEffortSetting,
   splitModelSpecifier,
+  supportedEffortSettings,
 } from "../../src/providers/provider-service.ts";
 
 const temporaryDirectories: string[] = [];
@@ -102,10 +107,51 @@ describe("ProviderService", () => {
       expect(transport.model.provider).toBe("local");
       expect(service.select("local", "local-model").upstream).toBe(transport.model);
       expect(service.provider).toBe(transport);
+      const isolated = service.createIsolatedProvider("gpt-5.2", "child-session");
+      expect(isolated.modelSpecifier).toBe("local/local-model");
+      expect(isolated.provider.model.id).toBe("local-model");
+      isolated.provider.close();
       expect(await service.credentials.getApiKey("local")).toBeUndefined();
     } finally {
       service.close();
     }
+  });
+
+  test("resolves only the reasoning efforts supported by each model", () => {
+    const reasoning = buildModel({
+      id: "reasoning-model",
+      name: "Reasoning model",
+      api: "openai-responses",
+      provider: "fixture",
+      baseUrl: "https://fixture.invalid/v1",
+      reasoning: true,
+      thinking: {
+        mode: "effort",
+        efforts: ["low", "high"] as Effort[],
+      },
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 100_000,
+      maxTokens: 10_000,
+    });
+    expect(supportedEffortSettings(reasoning)).toEqual(["auto", "off", "low", "high"]);
+    expect(resolveEffortSetting(reasoning, "max")).toBe("high");
+    expect(resolveEffortSetting(reasoning, "minimal")).toBe("low");
+
+    const plain = buildModel({
+      id: "plain-model",
+      name: "Plain model",
+      api: "openai-responses",
+      provider: "fixture",
+      baseUrl: "https://fixture.invalid/v1",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 100_000,
+      maxTokens: 10_000,
+    });
+    expect(supportedEffortSettings(plain)).toEqual(["off"]);
+    expect(resolveEffortSetting(plain, "high")).toBe("off");
   });
 
   test("converts config models and preserves ids containing slashes", () => {

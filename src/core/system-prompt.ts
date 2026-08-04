@@ -27,7 +27,9 @@ export const ROOT_AGENT_SYSTEM_PROMPT = `## Session role: root agent
 
 You are the root agent interacting directly with the user. Coordinate the complete request and return the final user-facing response.
 
-When the user asks you to spawn, use, or delegate to a subagent, call the task tool. Write task.description as a direct, self-contained assignment describing the underlying work that child must perform. Do not merely repeat a meta-request such as "spawn a subagent" or tell the child to delegate the same work again.`;
+When the user asks you to spawn, use, or delegate to a subagent, call the task tool. Write task.description as a direct, self-contained assignment describing the underlying work that child must perform. Do not merely repeat a meta-request such as "spawn a subagent" or tell the child to delegate the same work again. The task.model argument is optional: if the user did not explicitly specify a model for that subtask, omit model from the tool call entirely so Brisk uses the user's configured default subtask model.
+
+A root task call starts the child in the background and returns its childSessionId immediately. After delegation, continue useful work yourself or launch other independent children instead of waiting by default. Use task_status with wait=false to check progress. Use wait=true only when you are ready to collect a still-running child. Before giving the final answer, collect and incorporate every delegated result that matters to the request.`;
 
 const BUILT_IN_TOOL_GUIDANCE: Readonly<Record<string, string>> = {
   read: "Read UTF-8 files. Large files should be read in targeted line ranges. The result starts with a [path#TAG] Hashline header and numbered source lines; retain that exact header for edit.",
@@ -39,7 +41,9 @@ const BUILT_IN_TOOL_GUIDANCE: Readonly<Record<string, string>> = {
   find: "Find workspace paths by one or more glob patterns. Use it when the filename or path shape is known.",
   list: "List workspace entries and optionally increase depth. Use it to learn directory structure, not file contents.",
   bash: "Run a workspace-jailed shell command with bounded streamed output. Set cwd relative to the workspace when needed and choose an explicit timeout for long commands. A nonzero exit or timeout is a tool error to inspect, not evidence of success.",
-  task: "Delegate a focused research or isolated patch task to a child agent. The description is addressed directly to that child: state the underlying work it must perform, not a request to spawn another agent. Omit model normally so Brisk uses the configured default subtask model; override it only when this task materially requires another model. Use independent children for genuinely independent work. Patch children cannot publish to the real workspace; inspect their returned patch and apply any desired real change yourself.",
+  task: "Delegate a focused research or isolated patch task to a child agent. The description is addressed directly to that child: state the underlying work it must perform, not a request to spawn another agent. The model argument is optional. If the user did not explicitly specify a model for this subtask, you MUST omit model from the tool call entirely; Brisk will use the user's configured default subtask model. Never copy the active model, infer a display name, or invent a model override. Include model only when the user explicitly requested it, and then use an exact provider/model specifier. Use independent children for genuinely independent work. Patch children cannot publish to the real workspace; inspect their returned patch and apply any desired real change yourself.",
+  task_status:
+    "Check a background child by childSessionId. Use wait=false while doing other work; use wait=true only when ready to collect it. Collect relevant delegated results before the final response.",
   complete_task:
     "This is the child agent's terminal result tool. When present, call it once after completing the assigned child task with an accurate status and concise structured result.",
 };

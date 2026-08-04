@@ -9,6 +9,7 @@ import type {
 } from "@oh-my-pi/pi-ai";
 import { ProviderHttpError } from "@oh-my-pi/pi-ai/error";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
+import type { Effort } from "@oh-my-pi/pi-catalog/effort";
 
 import type { ProviderEvent } from "../../src/core/events.ts";
 import type { Message } from "../../src/core/messages.ts";
@@ -246,6 +247,7 @@ describe("PiAiProvider stream adapter", () => {
       auth,
       sessionId: "session-test",
       cacheRetention: "long",
+      reasoning: "high" as Effort,
       preconnect: (url) => warmed.push(url),
       stream: (selected, context, options) => {
         captures.push({ model: selected, context, options });
@@ -257,6 +259,7 @@ describe("PiAiProvider stream adapter", () => {
       ...request("model-one"),
       maxOutputTokens: 42,
     });
+    provider.setReasoning("off");
     const secondModel = makeModel("provider-two", "model-two", "https://two.test/v1");
     provider.setModel(secondModel);
     const second = await collect(provider, request("model-two"));
@@ -277,6 +280,7 @@ describe("PiAiProvider stream adapter", () => {
       apiKey,
       sessionId: "session-test",
       cacheRetention: "long",
+      reasoning: "high",
       statefulResponses: false,
       maxTokens: 42,
     });
@@ -285,6 +289,7 @@ describe("PiAiProvider stream adapter", () => {
     expect(captures[1]?.options.providerSessionState).toBe(
       captures[0]?.options.providerSessionState,
     );
+    expect(captures[1]?.options.disableReasoning).toBe(true);
     expect(captures[1]?.model.id).toBe("model-two");
     expect(provider.model).toBe(secondModel);
     expect(warmed).toEqual(["https://one.test/v1", "https://two.test/v1"]);

@@ -148,6 +148,24 @@ export class SessionRuntime {
     this.currentValue = await this.repository.open(this.sessionId);
   }
 
+  async recordSubagentCost(cost: number): Promise<void> {
+    if (!Number.isFinite(cost) || cost < 0) {
+      throw new RangeError("Subagent cost must be a non-negative finite number");
+    }
+    if (cost === 0) return;
+    const input = {
+      type: "usage" as const,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost },
+    };
+    if (this.recorder) {
+      this.recorder.append(input);
+      await this.recorder.flush();
+    } else {
+      await this.repository.append(this.sessionId, input);
+    }
+    this.currentValue = await this.repository.open(this.sessionId);
+  }
+
   async recordCompaction(compaction: CompactionMetadata): Promise<void> {
     if (this.recorder) {
       this.recorder.append({ type: "compaction", compaction });

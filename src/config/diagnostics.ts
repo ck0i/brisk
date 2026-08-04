@@ -35,6 +35,8 @@ const parseOptions: ParseOptions = {
 const topLevelFields = new Set([
   "defaultModel",
   "defaultSubtaskModel",
+  "effort",
+  "subtaskEffort",
   "permissionMode",
   "maxSubagents",
   "maxSubagentDepth",
@@ -51,6 +53,7 @@ const modelFields = new Set([
   "maxOutputTokens",
   "input",
   "toolCalling",
+  "reasoning",
   "name",
   "compat",
 ]);

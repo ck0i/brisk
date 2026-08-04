@@ -10,7 +10,9 @@ export function parseTaskInput(value: JsonValue): NormalizedTaskInput {
   const description = requireNonEmptyString(object.description, "description");
   const rawMode = object.mode;
   const mode = rawMode === undefined ? "research" : requireTaskMode(rawMode);
-  const model = optionalNonEmptyString(object.model, "model");
+  const requestedModel = optionalNonEmptyString(object.model, "model");
+  // Models often fill optional fields with an unqualified display name. Treat that as omitted.
+  const model = requestedModel && isQualifiedModel(requestedModel) ? requestedModel : undefined;
   const maxOutputTokens = optionalPositiveInteger(object.maxOutputTokens, "maxOutputTokens");
 
   return {
@@ -120,6 +122,11 @@ function requireNonEmptyString(value: JsonValue | undefined, name: string): stri
     throw new TypeError(`${name} must be a non-empty string`);
   }
   return value.trim();
+}
+
+function isQualifiedModel(value: string): boolean {
+  const separator = value.indexOf("/");
+  return separator > 0 && separator < value.length - 1;
 }
 
 function optionalNonEmptyString(value: JsonValue | undefined, name: string): string | undefined {

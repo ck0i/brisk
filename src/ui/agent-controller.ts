@@ -216,10 +216,14 @@ export class AgentUiController {
           const card = owner.tools?.find((candidate) => candidate.id === event.message.toolCallId);
           if (!card) break;
           const diff = card.diff ?? extractToolDiff(event.message.name, event.message.content);
+          const resultSummary = summarizeToolResult(event.message.name, event.message.content);
           const updated: UiToolCard = {
             ...card,
             status: event.message.isError ? "failed" : "completed",
-            summary: card.summary ?? summarizeToolResult(event.message.name, event.message.content),
+            summary:
+              event.message.name === "task_status"
+                ? resultSummary
+                : (card.summary ?? resultSummary),
             output: event.message.content,
             ...(diff === undefined ? {} : { diff, expanded: true }),
           };

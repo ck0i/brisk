@@ -1,5 +1,5 @@
 import type { ProviderEvent } from "../core/events.ts";
-import type { JsonValue, Message } from "../core/messages.ts";
+import type { JsonValue, Message, ToolCall, ToolResultMessage } from "../core/messages.ts";
 
 export interface JsonSchema {
   readonly type?: "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
@@ -34,6 +34,7 @@ export interface ProviderRequest {
   readonly model: string;
   readonly sessionId?: string;
   readonly maxOutputTokens?: number;
+  readonly executeTool?: (call: ToolCall, dispatchName?: string) => Promise<ToolResultMessage>;
 }
 
 export interface Provider {

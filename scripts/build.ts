@@ -109,8 +109,10 @@ const DOCUMENTS = [
   "CHANGELOG.md",
   "THIRD_PARTY_NOTICES.md",
   "docs/CONFIGURATION.md",
-  "docs/TROUBLESHOOTING.md",
+  "docs/EXTENSIONS.md",
   "docs/PROVIDERS.md",
+  "docs/TROUBLESHOOTING.md",
+  "docs/USAGE.md",
 ] as const;
 
 async function main(): Promise<void> {

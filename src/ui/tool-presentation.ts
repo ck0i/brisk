@@ -7,6 +7,12 @@ export function summarizeToolCall(call: ToolCall): string | undefined {
   if (call.name === "read" || call.name === "write") {
     return typeof arguments_.path === "string" ? compact(arguments_.path) : undefined;
   }
+  if (call.name === "task" && typeof arguments_.description === "string") {
+    return compact(arguments_.description);
+  }
+  if (call.name === "task_status" && typeof arguments_.childSessionId === "string") {
+    return compact(arguments_.childSessionId);
+  }
   if (call.name === "edit" && typeof arguments_.patch === "string") {
     const paths = [
       ...new Set(
@@ -21,7 +27,7 @@ export function summarizeToolCall(call: ToolCall): string | undefined {
 }
 
 export function summarizeToolResult(toolName: string, content: string): string {
-  if (toolName === "task") {
+  if (toolName === "task" || toolName === "task_status") {
     const result = parseTaskResult(content);
     if (result && typeof result.summary === "string") return compact(result.summary);
   }
@@ -35,7 +41,7 @@ export function extractToolDiff(toolName: string, content: string): string | und
     if (direct >= 0 && content.slice(direct).includes("\n+++ ")) return content.slice(direct);
     return undefined;
   }
-  if (toolName !== "task") return undefined;
+  if (toolName !== "task" && toolName !== "task_status") return undefined;
 
   const result = parseTaskResult(content);
   if (!result || typeof result.patch !== "string") return undefined;

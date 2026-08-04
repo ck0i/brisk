@@ -1,7 +1,13 @@
 import type { CacheRetention } from "@oh-my-pi/pi-ai";
+import type { Effort } from "@oh-my-pi/pi-catalog/effort";
+import {
+  clampThinkingLevelForModel,
+  getSupportedEfforts,
+  minimumSupportedEffort,
+} from "@oh-my-pi/pi-catalog/model-thinking";
 import type { Api, Model, OpenAICompat } from "@oh-my-pi/pi-catalog";
 
-import type { BriskConfig, CustomProviderConfig } from "../config/schema.ts";
+import type { BriskConfig, CustomProviderConfig, EffortSetting } from "../config/schema.ts";
 import type { ConfigPaths } from "../config/paths.ts";
 import { AuthService, type AuthServiceDependencies } from "./auth-service.ts";
 import {
@@ -33,6 +39,7 @@ export interface ModelSelection {
 export interface IsolatedProviderSelection extends ModelSelection {
   readonly provider: PiAiProvider;
   readonly modelSpecifier: string;
+  readonly effort: EffortSetting;
 }
 
 export type ProviderServiceListener = (selection: ModelSelection | undefined) => void;
@@ -80,6 +87,8 @@ export class ProviderService {
   private readonly listeners = new Set<ProviderServiceListener>();
   private readonly preferredModel: string | undefined;
   private readonly cacheRetention: CacheRetention;
+  private requestedEffort: EffortSetting;
+  private readonly subtaskEffort: EffortSetting;
   private sessionId: string | undefined;
   private selectedValue: ModelSelection | undefined;
   private transportValue: PiAiProvider | undefined;
@@ -96,6 +105,8 @@ export class ProviderService {
     this.credentials = credentials;
     this.preferredModel = options.preferredModel ?? options.config.defaultModel;
     this.cacheRetention = resolvePromptCacheRetention(options.environment);
+    this.requestedEffort = options.config.effort;
+    this.subtaskEffort = options.config.subtaskEffort;
     this.sessionId = options.sessionId;
   }
 
@@ -129,6 +140,18 @@ export class ProviderService {
 
   get provider(): PiAiProvider | undefined {
     return this.transportValue;
+  }
+
+  get effort(): EffortSetting {
+    return resolveEffortSetting(this.selectedValue?.upstream, this.requestedEffort);
+  }
+
+  setEffort(effort: EffortSetting): EffortSetting {
+    this.assertOpen();
+    this.requestedEffort = effort;
+    const resolved = this.effort;
+    this.transportValue?.setReasoning(toProviderReasoning(resolved));
+    return resolved;
   }
 
   setSessionId(sessionId: string): void {
@@ -176,6 +199,9 @@ export class ProviderService {
       } else {
         this.selectedValue = { record: refreshed, upstream };
         this.transportValue?.setModel(upstream);
+        this.transportValue?.setReasoning(
+          toProviderReasoning(resolveEffortSetting(upstream, this.requestedEffort)),
+        );
         this.publish();
       }
     }
@@ -184,15 +210,16 @@ export class ProviderService {
   createIsolatedProvider(
     modelSpecifier: string | undefined,
     sessionId: string,
+    effort: EffortSetting = this.subtaskEffort,
   ): IsolatedProviderSelection {
     this.assertOpen();
     const parsed = modelSpecifier === undefined ? undefined : splitModelSpecifier(modelSpecifier);
-    if (modelSpecifier !== undefined && !parsed) {
-      throw new Error("Model must use provider/model format");
-    }
+    // A malformed optional child override behaves as omitted and uses the selected default.
     const selected = parsed ? this.selectionFor(parsed.provider, parsed.id) : this.selectedValue;
     if (!selected) throw new Error("No provider model is selected for the child session");
     const resolvedSpecifier = `${selected.record.provider}/${selected.record.id}`;
+    const resolvedEffort = resolveEffortSetting(selected.upstream, effort);
+    const reasoning = toProviderReasoning(resolvedEffort);
     return {
       ...selected,
       provider: new PiAiProvider({
@@ -200,8 +227,10 @@ export class ProviderService {
         auth: this.credentials,
         sessionId,
         cacheRetention: this.cacheRetention,
+        ...(reasoning === undefined ? {} : { reasoning }),
       }),
       modelSpecifier: resolvedSpecifier,
+      effort: resolvedEffort,
     };
   }
 
@@ -210,12 +239,16 @@ export class ProviderService {
     const selection = this.selectionFor(provider, id);
     const { upstream } = selection;
     this.selectedValue = selection;
-    if (this.transportValue) this.transportValue.setModel(upstream);
-    else {
+    const reasoning = toProviderReasoning(resolveEffortSetting(upstream, this.requestedEffort));
+    if (this.transportValue) {
+      this.transportValue.setModel(upstream);
+      this.transportValue.setReasoning(reasoning);
+    } else {
       this.transportValue = new PiAiProvider({
         model: upstream,
         auth: this.credentials,
         cacheRetention: this.cacheRetention,
+        ...(reasoning === undefined ? {} : { reasoning }),
         ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }),
       });
     }
@@ -250,6 +283,44 @@ export class ProviderService {
   }
 }
 
+export function supportedEffortSettings(model: Model<Api>): readonly EffortSetting[] {
+  if (!model.reasoning) return ["off"];
+  const efforts = getSupportedEfforts(model) as readonly EffortSetting[];
+  return [
+    "auto",
+    ...(model.thinking?.requiresEffort === true ? [] : (["off"] as const)),
+    ...efforts,
+  ];
+}
+
+export function resolveEffortSetting(
+  model: Model<Api> | undefined,
+  requested: EffortSetting,
+): EffortSetting {
+  if (!model) return requested;
+  if (!model.reasoning) return "off";
+  if (requested === "auto") return "auto";
+  if (requested === "off") {
+    if (model.thinking?.requiresEffort !== true) return "off";
+    return (model.thinking.defaultLevel ??
+      minimumSupportedEffort(model) ??
+      "auto") as EffortSetting;
+  }
+  const effort = effortFromSetting(requested);
+  const clamped = clampThinkingLevelForModel(model, effort);
+  return (clamped ?? "auto") as EffortSetting;
+}
+
+function toProviderReasoning(effort: EffortSetting): Effort | "off" | undefined {
+  if (effort === "auto") return undefined;
+  if (effort === "off") return "off";
+  return effortFromSetting(effort);
+}
+
+function effortFromSetting(effort: Exclude<EffortSetting, "auto" | "off">): Effort {
+  return effort as Effort;
+}
+
 export function customModelsFromConfig(
   providers: Readonly<Record<string, CustomProviderConfig>>,
 ): CustomOpenAICompatibleModel[] {
@@ -263,6 +334,7 @@ export function customModelsFromConfig(
       contextWindow: model.contextWindow,
       maxTokens: model.maxOutputTokens,
       input: model.input,
+      ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
       supportsTools: model.toolCalling,
       keyless: definition.keyless ?? false,
       ...(model.compat === undefined ? {} : { compat: model.compat as OpenAICompat }),

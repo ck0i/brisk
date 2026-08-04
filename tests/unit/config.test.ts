@@ -26,6 +26,8 @@ describe("configuration", () => {
       `{
         // comments and trailing commas are supported
         "permissionMode": "safe",
+        "effort": "high",
+        "subtaskEffort": "low",
         "ui": { "theme": "high-contrast", },
       }`,
       "/config/global.jsonc",
@@ -34,6 +36,8 @@ describe("configuration", () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.value).toEqual({
       permissionMode: "safe",
+      effort: "high",
+      subtaskEffort: "low",
       ui: { theme: "high-contrast" },
     });
   });

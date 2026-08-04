@@ -86,9 +86,17 @@ export type ProviderEvent =
       readonly index: number;
       readonly id: string;
       readonly name: string;
+      readonly arguments?: string;
+      readonly resolved?: boolean;
     }
   | { readonly type: "tool_call_delta"; readonly index: number; readonly delta: string }
-  | { readonly type: "tool_call_end"; readonly index: number }
+  | {
+      readonly type: "tool_call_end";
+      readonly index: number;
+      readonly arguments?: string;
+      readonly resolved?: boolean;
+    }
+  | { readonly type: "provider_tool_result"; readonly message: ToolResultMessage }
   | { readonly type: "usage"; readonly usage: Usage }
   | {
       readonly type: "response_end";

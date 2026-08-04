@@ -66,10 +66,13 @@ interface ToolCallBuilder {
   readonly name: string;
   arguments: string;
   ended: boolean;
+  resolved: boolean;
 }
 
 interface CollectedResponse {
   readonly assistant: AssistantMessage;
+  readonly providerToolResults: readonly ToolResultMessage[];
+  readonly resolvedToolCallIds: ReadonlySet<string>;
 }
 
 export class AgentLoop {
@@ -214,7 +217,8 @@ export class AgentLoop {
   private async runTurn(signal: AbortSignal): Promise<void> {
     while (true) {
       throwIfAborted(signal);
-      const { assistant } = await this.collectResponse(signal);
+      const { assistant, providerToolResults, resolvedToolCallIds } =
+        await this.collectResponse(signal);
       throwIfAborted(signal);
       this.accumulatedUsage = addUsage(this.accumulatedUsage, assistant.usage);
 
@@ -224,39 +228,24 @@ export class AgentLoop {
       if (assistant.toolCalls.length === 0) return;
 
       try {
-        const results = await this.tools.execute(assistant.toolCalls, signal, {
-          onStart: (call) => {
-            this.publish({ type: "tool_execution_start", id: call.id, name: call.name });
-          },
-          onOutput: (call, stream, delta) => {
-            this.publish({
-              type: "tool_execution_output",
-              id: call.id,
-              name: call.name,
-              stream,
-              delta,
-            });
-          },
-          onPreview: (call, preview) => {
-            this.publish({
-              type: "tool_execution_preview",
-              id: call.id,
-              name: call.name,
-              preview,
-            });
-          },
-          onEnd: (call, result) => {
-            this.publish({
-              type: "tool_execution_end",
-              id: call.id,
-              name: call.name,
-              isError: result.isError ?? false,
-            });
-          },
-        });
+        const providerResults = new Map(
+          providerToolResults.map((result) => [result.toolCallId, result]),
+        );
+        for (const id of resolvedToolCallIds) {
+          if (!providerResults.has(id)) {
+            throw invalidResponse(`Provider-resolved tool call ${id} had no result`);
+          }
+        }
+        const pendingCalls = assistant.toolCalls.filter(
+          (call) => !resolvedToolCallIds.has(call.id),
+        );
+        const localResults = await this.executeToolCalls(pendingCalls, signal);
+        const results = new Map(providerResults);
+        for (const result of localResults) results.set(result.toolCallId, result);
         throwIfAborted(signal);
-        for (const result of results) {
-          throwIfAborted(signal);
+        for (const call of assistant.toolCalls) {
+          const result = results.get(call.id);
+          if (!result) throw invalidResponse(`Tool call ${call.id} had no result`);
           this.history.push(result);
           this.publish({ type: "tool_result", message: result });
         }
@@ -307,6 +296,7 @@ export class AgentLoop {
     let thinking = "";
     let usage: Usage | undefined;
     let providerReplay: ProviderReplay | undefined;
+    const providerToolResults = new Map<string, ToolResultMessage>();
     let started = false;
     let ended = false;
     let upstreamIdentity:
@@ -335,6 +325,8 @@ export class AgentLoop {
       signal,
       model: this.model,
       ...(this.maxOutputTokens === undefined ? {} : { maxOutputTokens: this.maxOutputTokens }),
+      executeTool: async (call, dispatchName) =>
+        await this.executeProviderTool(call, dispatchName, signal),
     });
 
     for await (const event of events) {
@@ -375,8 +367,9 @@ export class AgentLoop {
           calls.set(event.index, {
             id: event.id,
             name: event.name,
-            arguments: "",
+            arguments: event.arguments ?? "",
             ended: false,
+            resolved: event.resolved ?? false,
           });
           this.publish(event);
           break;
@@ -395,10 +388,15 @@ export class AgentLoop {
           const call = calls.get(event.index);
           if (!call) throw invalidResponse(`Tool call end has unknown index ${event.index}`);
           if (call.ended) throw invalidResponse(`Duplicate tool call end for index ${event.index}`);
+          if (event.arguments !== undefined) call.arguments = event.arguments;
+          if (event.resolved === true) call.resolved = true;
           call.ended = true;
           this.publish(event);
           break;
         }
+        case "provider_tool_result":
+          providerToolResults.set(event.message.toolCallId, event.message);
+          break;
         case "usage":
           usage = addUsage(usage, event.usage);
           this.publish(event);
@@ -418,10 +416,12 @@ export class AgentLoop {
     if (!ended) throw invalidResponse("Provider response did not end");
 
     const toolCalls: ToolCall[] = [];
+    const resolvedToolCallIds = new Set<string>();
     const orderedCalls = [...calls.entries()].sort(([left], [right]) => left - right);
     for (const [, call] of orderedCalls) {
       if (!call.ended) throw invalidResponse(`Tool call ${call.id} did not end`);
       toolCalls.push({ id: call.id, name: call.name, arguments: call.arguments });
+      if (call.resolved || providerToolResults.has(call.id)) resolvedToolCallIds.add(call.id);
     }
 
     const assistant: AssistantMessage = {
@@ -433,7 +433,64 @@ export class AgentLoop {
       ...(providerReplay === undefined ? {} : { providerReplay }),
       ...upstreamIdentity,
     };
-    return { assistant };
+    return {
+      assistant,
+      providerToolResults: [...providerToolResults.values()],
+      resolvedToolCallIds,
+    };
+  }
+
+  private async executeToolCalls(
+    calls: readonly ToolCall[],
+    signal: AbortSignal,
+    displayCall?: ToolCall,
+  ): Promise<ToolResultMessage[]> {
+    if (calls.length === 0) return [];
+    return await this.tools.execute(calls, signal, {
+      onStart: (call) => {
+        const display = displayCall ?? call;
+        this.publish({ type: "tool_execution_start", id: display.id, name: display.name });
+      },
+      onOutput: (call, stream, delta) => {
+        const display = displayCall ?? call;
+        this.publish({
+          type: "tool_execution_output",
+          id: display.id,
+          name: display.name,
+          stream,
+          delta,
+        });
+      },
+      onPreview: (call, preview) => {
+        const display = displayCall ?? call;
+        this.publish({
+          type: "tool_execution_preview",
+          id: display.id,
+          name: display.name,
+          preview,
+        });
+      },
+      onEnd: (call, result) => {
+        const display = displayCall ?? call;
+        this.publish({
+          type: "tool_execution_end",
+          id: display.id,
+          name: display.name,
+          isError: result.isError ?? false,
+        });
+      },
+    });
+  }
+
+  private async executeProviderTool(
+    call: ToolCall,
+    dispatchName: string | undefined,
+    signal: AbortSignal,
+  ): Promise<ToolResultMessage> {
+    const dispatched = dispatchName ? { ...call, name: dispatchName } : call;
+    const [result] = await this.executeToolCalls([dispatched], signal, call);
+    if (!result) throw new Error(`Provider tool ${call.id} produced no result`);
+    return { ...result, toolCallId: call.id, name: call.name };
   }
 
   private publish(event: AgentEvent): void {

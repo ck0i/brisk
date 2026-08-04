@@ -5,7 +5,7 @@ import {
   type ScrollBoxRenderable,
   type TextareaRenderable,
 } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import { onResize, useKeyboard } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import { redactSecrets } from "../providers/secret-redaction.ts";
@@ -729,7 +729,7 @@ function Conversation(props: { messages: readonly UiMessage[]; showThinking: boo
 
 export function Root(props: RootProps) {
   const [state, setState] = createSignal(props.store.snapshot);
-  const [composerLines, setComposerLines] = createSignal(1);
+  const [composerRows, setComposerRows] = createSignal(1);
   const [composerText, setComposerText] = createSignal("");
   const [slashSelectedIndex, setSlashSelectedIndex] = createSignal(0);
   const [slashDismissed, setSlashDismissed] = createSignal(false);
@@ -738,6 +738,7 @@ export function Root(props: RootProps) {
   let conversation: ScrollBoxRenderable | undefined;
   let suppressSlashDismissalReset = false;
   let latestSubmissionId = 0;
+  let disposed = false;
   let overlayWasVisible =
     state().approval !== undefined ||
     state().picker !== undefined ||
@@ -746,7 +747,12 @@ export function Root(props: RootProps) {
     state().agentPanel !== undefined;
 
   const unsubscribe = props.store.subscribe(setState);
-  onCleanup(unsubscribe);
+  onCleanup(() => {
+    disposed = true;
+    composer = undefined;
+    conversation = undefined;
+    unsubscribe();
+  });
 
   createEffect(() => {
     const overlayVisible =
@@ -765,7 +771,7 @@ export function Root(props: RootProps) {
   const hiddenMessageCount = createMemo(() =>
     Math.max(0, state().messages.length - visibleMessages().length),
   );
-  const composerHeight = createMemo(() => Math.min(7, Math.max(2, composerLines() + 1)));
+  const composerHeight = createMemo(() => composerRows() + 1);
   const slashOptions = createMemo(() => {
     const value = composerText();
     if (!value.startsWith("/") || value.includes(" ") || value.includes("\n")) return [];
@@ -806,11 +812,18 @@ export function Root(props: RootProps) {
     composer.focus();
   };
 
+  const updateComposerRows = (): void => {
+    if (disposed || !composer) return;
+    setComposerRows(Math.min(6, Math.max(1, composer.editorView.getTotalVirtualLineCount())));
+  };
+
+  onResize(() => queueMicrotask(updateComposerRows));
+
   const restoreSubmittedDraft = (value: string, submissionId: number): void => {
     if (!composer || submissionId !== latestSubmissionId || composer.plainText.length > 0) return;
     composer.setText(value);
     composer.cursorOffset = value.length;
-    setComposerLines(composer.lineCount);
+    updateComposerRows();
     setComposerText(value);
   };
 
@@ -834,7 +847,7 @@ export function Root(props: RootProps) {
     setSlashDismissed(true);
     props.store.clearNotice();
     composer.clear();
-    setComposerLines(1);
+    setComposerRows(1);
     setComposerText("");
 
     let result: boolean | Promise<boolean>;
@@ -880,6 +893,12 @@ export function Root(props: RootProps) {
   };
 
   useKeyboard((key) => {
+    if (key.ctrl && key.name === "d") {
+      key.preventDefault();
+      key.stopPropagation();
+      props.onExit();
+      return;
+    }
     if (state().textInput) {
       if (key.name === "escape" || (key.ctrl && key.name === "c")) {
         key.preventDefault();
@@ -975,8 +994,10 @@ export function Root(props: RootProps) {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
       key.stopPropagation();
-      if (state().busy) props.onAbort();
-      else props.onExit();
+      composer?.clear();
+      setComposerRows(1);
+      setComposerText("");
+      setSlashDismissed(true);
       return;
     }
     if (key.ctrl && key.name === "p") {
@@ -1077,8 +1098,8 @@ export function Root(props: RootProps) {
         <text fg={palette().muted}>
           context {state().contextTokens.toLocaleString()}
           {contextWindowLabel()} · cache R{state().cacheReadTokens.toLocaleString()} W
-          {state().cacheWriteTokens.toLocaleString()} · cost ${state().cost.toFixed(4)} ·{" "}
-          {state().status} · {state().mode}
+          {state().cacheWriteTokens.toLocaleString()} · cost ${state().cost.toFixed(4)} · effort{" "}
+          {state().effort} · {state().status} · {state().mode}
           <Show when={extensionText("status")}> · {extensionText("status")}</Show>
         </text>
       </box>
@@ -1128,7 +1149,7 @@ export function Root(props: RootProps) {
           }}
           focused
           flexGrow={1}
-          height={composerLines()}
+          height={composerRows()}
           keyBindings={COMPOSER_BINDINGS}
           placeholder="Send a message or /help · Ctrl+J for newline"
           placeholderColor={palette().muted}
@@ -1139,8 +1160,9 @@ export function Root(props: RootProps) {
           wrapMode="word"
           onContentChange={() => {
             if (composer) {
-              setComposerLines(composer.lineCount);
+              updateComposerRows();
               setComposerText(composer.plainText);
+              queueMicrotask(updateComposerRows);
               if (suppressSlashDismissalReset) suppressSlashDismissalReset = false;
               else setSlashDismissed(false);
             }

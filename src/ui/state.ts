@@ -112,6 +112,7 @@ export interface UiAuthPrompt {
 export interface UiSnapshot {
   workspace: string;
   providerModel: string;
+  effort: string;
   status: string;
   mode: "safe" | "write" | "yolo";
   theme: UiTheme;
@@ -156,6 +157,7 @@ export class UiStore {
     this.current = {
       workspace,
       providerModel: "select a model",
+      effort: "auto",
       status: "ready",
       mode,
       theme: "default",

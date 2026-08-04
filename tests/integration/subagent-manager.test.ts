@@ -64,7 +64,7 @@ describe("SubagentManager execution", () => {
 
     const results = await manager.runMany([
       { description: "first", mode: "research" },
-      { description: "second", mode: "patch", model: "patch-model" },
+      { description: "second", mode: "patch", model: "provider/patch-model" },
       { description: "third", mode: "research", maxOutputTokens: 77 },
     ]);
 
@@ -78,7 +78,7 @@ describe("SubagentManager execution", () => {
       "completed",
     ]);
     expect(sessions[0]?.model).toBe("default-model");
-    expect(sessions[1]?.model).toBe("patch-model");
+    expect(sessions[1]?.model).toBe("provider/patch-model");
     expect(sessions[2]?.model).toBe("default-model");
     expect(sessions[2]?.maxOutputTokens).toBe(77);
     expect(providers.get("child-1")?.requests[0]?.maxOutputTokens).toBeUndefined();
@@ -198,13 +198,13 @@ describe("SubagentManager execution", () => {
     await manager.run({
       description: "private task",
       mode: "patch",
-      model: "selected",
+      model: "provider/selected",
       maxOutputTokens: 321,
     });
 
     expect(providerContext).toEqual({
       childSessionId: "private-child",
-      model: "selected",
+      model: "provider/selected",
       mode: "patch",
       depth: 1,
       maxOutputTokens: 321,
@@ -216,6 +216,30 @@ describe("SubagentManager execution", () => {
 });
 
 describe("SubagentManager orchestration controls", () => {
+  test("starts a background child immediately and waits only when explicitly collected", async () => {
+    const manager = new SubagentManager({
+      checkpointStore: new CheckpointStore(),
+      createCheckpoint: () => prefix,
+      defaultModel: "fake/child",
+      createChildSessionId: () => "background-child",
+      providerFactory: () => new FakeProvider([completeTurn("background", 40)]),
+    });
+
+    const started = await manager.start({ description: "background research" });
+    expect(started).toMatchObject({
+      childSessionId: "background-child",
+      status: "queued",
+    });
+    expect(manager.get("background-child")?.result).toBeUndefined();
+
+    const result = await manager.wait("background-child");
+    expect(result).toEqual({
+      status: "completed",
+      summary: "background",
+      childSessionId: "background-child",
+    });
+  });
+
   test("shares concurrency one between run calls and cancels queued and running children", async () => {
     let nextId = 0;
     let active = 0;

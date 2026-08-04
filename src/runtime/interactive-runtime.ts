@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { CliCommand } from "../cli/args.ts";
 import { ConfigManager } from "../config/manager.ts";
 import { ensureConfigDirectories, resolveConfigPaths, type ConfigPaths } from "../config/paths.ts";
-import type { BriskConfig, ConfigOverrides } from "../config/schema.ts";
+import type { BriskConfig, ConfigOverrides, EffortSetting } from "../config/schema.ts";
 import { writeConfigValue } from "../config/write.ts";
 import { ContextManager, type ContextInspection, type ContextModel } from "../context/index.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
@@ -15,7 +15,9 @@ import { redactedErrorMessage } from "../providers/secret-redaction.ts";
 import { BUILT_IN_BRISK_OAUTH_PROVIDERS } from "../providers/auth-service.ts";
 import {
   ProviderService,
+  resolveEffortSetting,
   splitModelSpecifier,
+  supportedEffortSettings,
   type ModelSelection,
 } from "../providers/provider-service.ts";
 import { registerCodingTools, type CodingToolServices } from "../tools/coding-tools.ts";
@@ -245,6 +247,7 @@ export class InteractiveRuntime {
       globalDirectory: this.paths.extensionsDir,
       errorsPath: join(this.paths.extensionsDir, "errors.json"),
       approvalHandler: this.approvalController,
+      permissionMode: this.configManager.current.permissionMode,
       store: this.store,
     });
     this.extensions = runtime;
@@ -413,7 +416,7 @@ export class InteractiveRuntime {
     if (session.selectedModelSpecifier !== "fake/brisk-demo") {
       await session.recordModelChange("fake", "brisk-demo");
     }
-    this.store.update({ providerModel: "fake/brisk-demo", status: "ready" });
+    this.store.update({ providerModel: "fake/brisk-demo", effort: "off", status: "ready" });
     await this.initializeSubagents(this.resolveDefaultSubtaskModel("fake/brisk-demo"));
   }
 
@@ -447,14 +450,17 @@ export class InteractiveRuntime {
     if (session.selectedModelSpecifier !== selectedName) {
       await session.recordModelChange(selection.record.provider, selection.record.id);
     }
+    const effort = providers.setEffort(this.configManager.current.effort);
     this.store.update({
       providerModel: selectedName,
+      effort,
       contextWindow: selection.record.contextWindow ?? undefined,
       status: "ready",
     });
     const defaultSubtaskModel = this.resolveDefaultSubtaskModel(selectedName);
     await this.initializeSubagents(defaultSubtaskModel);
     this.subagents?.setDefaultModel(defaultSubtaskModel);
+    this.subagents?.setDefaultEffort(this.configManager.current.subtaskEffort);
   }
 
   private resolveDefaultSubtaskModel(parentModel: string): string {
@@ -490,6 +496,7 @@ export class InteractiveRuntime {
       checkpointDirectory: `${this.paths.dataRoot}/checkpoints`,
       artifactsDirectory: this.paths.artifactsDir,
       defaultModel,
+      defaultEffort: this.configManager.current.subtaskEffort,
       maxConcurrency: this.configManager.current.maxSubagents,
       maxDepth: this.configManager.current.maxSubagentDepth,
       permissionMode: this.configManager.current.permissionMode,
@@ -504,7 +511,7 @@ export class InteractiveRuntime {
       store: this.store,
     });
     this.subagents = runtime;
-    this.tools.register(runtime.taskTool);
+    this.tools.register(runtime.taskTool).register(runtime.taskStatusTool);
   }
 
   private installAgentLoop(loop: AgentLoop): void {
@@ -694,6 +701,9 @@ export class InteractiveRuntime {
       case "/model":
         await this.changeModel(argument);
         return true;
+      case "/effort":
+        await this.changeEffort(argument === "subagent" || argument === "child");
+        return true;
       case "/compact":
         await this.compactContext();
         return true;
@@ -779,6 +789,10 @@ export class InteractiveRuntime {
           config.defaultSubtaskModel,
           true,
         );
+      case "effort":
+        return await this.changeConfiguredEffort(false);
+      case "subtaskEffort":
+        return await this.changeConfiguredEffort(true);
       case "permissionMode":
         return await this.changeChoiceSetting(
           ["permissionMode"],
@@ -787,7 +801,7 @@ export class InteractiveRuntime {
           [
             { id: "safe", label: "Safe", description: "prompt before writes and shell commands" },
             { id: "write", label: "Write", description: "allow edits; prompt for shell commands" },
-            { id: "yolo", label: "Yolo", description: "allow ordinary tool operations" },
+            { id: "yolo", label: "Yolo", description: "never prompt for tool permissions" },
           ],
         );
       case "maxSubagents":
@@ -875,7 +889,36 @@ export class InteractiveRuntime {
     });
     if (selected === undefined) return false;
     await this.saveGlobalSetting([field], selected === "inherit" ? undefined : selected);
+    if (selected !== "inherit") {
+      const model = this.upstreamModel(selected);
+      if (model) {
+        await this.chooseAndSaveEffort(
+          model,
+          field === "defaultSubtaskModel" ? "Subagent effort" : "Main agent effort",
+          field === "defaultSubtaskModel" ? "subtaskEffort" : "effort",
+        );
+      }
+    }
     return true;
+  }
+
+  private async changeConfiguredEffort(subtask: boolean): Promise<boolean> {
+    const config = this.configManager.current;
+    const modelSpecifier = subtask
+      ? (config.defaultSubtaskModel ??
+        (this.providerService?.selected && modelName(this.providerService.selected)))
+      : (config.defaultModel ??
+        (this.providerService?.selected && modelName(this.providerService.selected)));
+    const model = modelSpecifier ? this.upstreamModel(modelSpecifier) : undefined;
+    if (!model) {
+      this.addSystem("Select an available model before configuring effort.");
+      return false;
+    }
+    return await this.chooseAndSaveEffort(
+      model,
+      subtask ? "Subagent effort" : "Main agent effort",
+      subtask ? "subtaskEffort" : "effort",
+    );
   }
 
   private async changeChoiceSetting(
@@ -1000,6 +1043,68 @@ export class InteractiveRuntime {
     this.addSystem(formatContextInspection(inspection));
   }
 
+  private upstreamModel(specifier: string) {
+    const parsed = splitModelSpecifier(specifier);
+    return parsed
+      ? this.providerService?.registry.resolveUpstreamModel(parsed.provider, parsed.id)
+      : undefined;
+  }
+
+  private async chooseAndSaveEffort(
+    model: ModelSelection["upstream"],
+    title: string,
+    field: "effort" | "subtaskEffort",
+  ): Promise<boolean> {
+    const current = this.configManager.current[field];
+    const supported = supportedEffortSettings(model);
+    const selected = await this.pickerController.choose({
+      title: `${title} · ${model.provider}/${model.id}`,
+      selectedId: resolveEffortSetting(model, current),
+      options: supported.map((effort) => ({
+        id: effort,
+        label: effortLabel(effort),
+        description: effortDescription(model.reasoning, effort),
+      })),
+    });
+    if (selected === undefined) return false;
+    await this.saveGlobalSetting([field], selected);
+    return true;
+  }
+
+  private async changeEffort(subtask: boolean): Promise<void> {
+    if (this.store.snapshot.busy) {
+      this.addSystem("Abort active work before changing effort.");
+      return;
+    }
+    const providers = this.providerService;
+    const selected = providers?.selected;
+    if (!providers || !selected) {
+      this.addSystem("Effort selection is unavailable until a model is selected.");
+      return;
+    }
+    const model = subtask
+      ? this.upstreamModel(this.configManager.current.defaultSubtaskModel ?? modelName(selected))
+      : selected.upstream;
+    if (!model) {
+      this.addSystem("The configured subagent model is unavailable.");
+      return;
+    }
+    const changed = await this.chooseAndSaveEffort(
+      model,
+      subtask ? "Subagent effort" : "Main agent effort",
+      subtask ? "subtaskEffort" : "effort",
+    );
+    if (!changed) return;
+    if (subtask) {
+      this.subagents?.setDefaultEffort(this.configManager.current.subtaskEffort);
+      this.addSystem(`Subagent effort set to **${this.configManager.current.subtaskEffort}**.`);
+    } else {
+      const effort = providers.setEffort(this.configManager.current.effort);
+      this.store.update({ effort });
+      this.addSystem(`Main agent effort set to **${effort}**.`);
+    }
+  }
+
   private async changeModel(specifier: string): Promise<void> {
     const providers = this.providerService;
     if (!providers) {
@@ -1014,8 +1119,9 @@ export class InteractiveRuntime {
     const parsed = splitModelSpecifier(specifier);
     if (!parsed) throw new Error("Model must use provider/model format");
     const selection = providers.select(parsed.provider, parsed.id);
+    await this.chooseAndSaveEffort(selection.upstream, "Main agent effort", "effort");
     await this.activateSelection(selection);
-    this.addSystem(`Selected \`${modelName(selection)}\`.`);
+    this.addSystem(`Selected \`${modelName(selection)}\` with **${providers.effort}** effort.`);
   }
 
   private async pickModel(): Promise<string | undefined> {
@@ -1148,6 +1254,26 @@ export class InteractiveRuntime {
   }
 }
 
+function effortLabel(effort: EffortSetting): string {
+  switch (effort) {
+    case "auto":
+      return "Auto";
+    case "off":
+      return "Off";
+    case "xhigh":
+      return "Extra high";
+    default:
+      return `${effort[0]?.toUpperCase() ?? ""}${effort.slice(1)}`;
+  }
+}
+
+function effortDescription(reasoning: boolean, effort: EffortSetting): string {
+  if (!reasoning) return "this model does not support reasoning";
+  if (effort === "auto") return "use the model/provider default";
+  if (effort === "off") return "disable reasoning";
+  return "set reasoning intensity";
+}
+
 function settingsOptions(config: BriskConfig): readonly {
   readonly id: string;
   readonly label: string;
@@ -1163,6 +1289,12 @@ function settingsOptions(config: BriskConfig): readonly {
       id: "defaultSubtaskModel",
       label: "Default subtask model",
       description: config.defaultSubtaskModel ?? "inherit active parent model",
+    },
+    { id: "effort", label: "Main agent effort", description: config.effort },
+    {
+      id: "subtaskEffort",
+      label: "Subagent effort",
+      description: config.subtaskEffort,
     },
     { id: "permissionMode", label: "Permission mode", description: config.permissionMode },
     {
@@ -1255,11 +1387,12 @@ function applyHistoricalToolResult(
   if (!message || !card) return;
   const tools = [...(message.tools ?? [])];
   const diff = extractToolDiff(result.name, result.content);
+  const resultSummary = summarizeToolResult(result.name, result.content);
   tools[owner.cardIndex] = {
     ...card,
     status: result.isError ? "failed" : "completed",
     output: result.content,
-    summary: card.summary ?? summarizeToolResult(result.name, result.content),
+    summary: result.name === "task_status" ? resultSummary : (card.summary ?? resultSummary),
     ...(diff === undefined ? {} : { diff, expanded: true }),
   };
   messages[owner.messageIndex] = { ...message, tools };
@@ -1297,5 +1430,5 @@ function formatContextInspection(inspection: ContextInspection): string {
 
 function helpText(): string {
   const commands = BUILT_IN_SLASH_COMMANDS.map((command) => `\`${command.name}\``).join(", ");
-  return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: abort, then exit when idle\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n${commands}`;
+  return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: clear composer input\n- Ctrl+D: exit\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n${commands}`;
 }

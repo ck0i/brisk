@@ -8,7 +8,7 @@ import type {
   ExtensionLoadSummary,
 } from "../extensions/types.ts";
 import { redactSecrets } from "../providers/secret-redaction.ts";
-import type { ApprovalHandler } from "../tools/approval.ts";
+import type { ApprovalHandler, PermissionMode } from "../tools/approval.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
 import type { UiStore } from "../ui/state.ts";
 import type { JsonValue } from "../core/messages.ts";
@@ -18,6 +18,7 @@ export interface RuntimeExtensionOptions {
   readonly globalDirectory: string;
   readonly errorsPath: string;
   readonly approvalHandler: ApprovalHandler;
+  readonly permissionMode: PermissionMode;
   readonly store: UiStore;
 }
 
@@ -39,6 +40,7 @@ export class RuntimeExtensions {
       globalDirectories: [options.globalDirectory],
       projectDirectories: [join(options.workspace, ".brisk", "extensions")],
       approveProjectExtension: async (extension, signal) => {
+        if (options.permissionMode === "yolo") return true;
         const decision = await options.approvalHandler.requestApproval(
           {
             toolName: "extension",

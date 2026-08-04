@@ -113,14 +113,18 @@ describe("subagent structured parsers", () => {
       parseTaskInput({
         description: "patch it",
         mode: "patch",
-        model: "fast",
+        model: "provider/fast",
         maxOutputTokens: 123,
       }),
     ).toEqual({
       description: "patch it",
       mode: "patch",
-      model: "fast",
+      model: "provider/fast",
       maxOutputTokens: 123,
+    });
+    expect(parseTaskInput({ description: "x", model: "gpt-5.2" })).toEqual({
+      description: "x",
+      mode: "research",
     });
     expect(() => parseTaskInput({ description: "x", extra: true })).toThrow("extra is not allowed");
     expect(() => parseTaskInput({ description: "x", mode: "other" })).toThrow();

@@ -158,6 +158,7 @@ export function sessionInputForEvent(event: AgentEvent): SessionEntryInput | und
     case "response_end":
     case "tool_execution_start":
     case "tool_execution_output":
+    case "tool_execution_preview":
     case "tool_execution_end":
     case "idle":
       return undefined;

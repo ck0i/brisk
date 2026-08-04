@@ -201,7 +201,9 @@ export class AuthService implements CredentialResolver {
                 return resolved;
               },
             }),
-        ...(prompter.progress === undefined ? {} : { onProgress: prompter.progress }),
+        ...(prompter.progress === undefined
+          ? {}
+          : { onProgress: (message: string) => prompter.progress?.(message) }),
         ...(signal === undefined ? {} : { signal }),
       });
     } catch (error) {

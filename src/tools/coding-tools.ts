@@ -186,6 +186,11 @@ async function approveAndCommit(
   limiter: OutputLimiter,
 ): Promise<ToolResult> {
   const targets = pending.preview.files.map((file) => file.path);
+  context.emitPreview({
+    summary: targets.join(", "),
+    diff: pending.preview.diff,
+    targetPaths: targets,
+  });
   const evaluation = permissions.evaluate({
     toolName: pending.preview.kind,
     summary: `${pending.preview.kind} ${targets.join(", ")}`,

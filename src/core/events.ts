@@ -1,4 +1,11 @@
-import type { AssistantMessage, ToolResultMessage, Usage, UserMessage } from "./messages.ts";
+import type {
+  AssistantMessage,
+  ProviderReplay,
+  ToolResultMessage,
+  Usage,
+  UserMessage,
+} from "./messages.ts";
+import type { ToolPreview } from "../tools/registry.ts";
 
 export type NormalizedProviderErrorKind =
   | "network"
@@ -86,6 +93,7 @@ export type ProviderEvent =
   | {
       readonly type: "response_end";
       readonly stopReason?: "stop" | "tool_call" | "length" | "unknown";
+      readonly providerReplay?: ProviderReplay;
     }
   | { readonly type: "error"; readonly error: NormalizedProviderError };
 
@@ -104,6 +112,12 @@ export type AgentEvent =
       readonly name: string;
       readonly stream: "stdout" | "stderr" | "progress";
       readonly delta: string;
+    }
+  | {
+      readonly type: "tool_execution_preview";
+      readonly id: string;
+      readonly name: string;
+      readonly preview: ToolPreview;
     }
   | {
       readonly type: "tool_execution_end";

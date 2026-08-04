@@ -15,6 +15,24 @@ export interface CheckpointStoreOptions {
   readonly maxEntries?: number;
 }
 
+/** Remove an incomplete trailing assistant/tool interaction before branching context. */
+export function withoutPendingToolTurn(messages: readonly Message[]): readonly Message[] {
+  let assistantIndex = messages.length - 1;
+  while (assistantIndex >= 0 && messages[assistantIndex]?.role === "tool") assistantIndex -= 1;
+  const assistant = messages[assistantIndex];
+  if (assistant?.role !== "assistant" || assistant.toolCalls.length === 0) return messages;
+
+  const resultIds = new Set(
+    messages
+      .slice(assistantIndex + 1)
+      .filter((message) => message.role === "tool")
+      .map((message) => message.toolCallId),
+  );
+  return assistant.toolCalls.every((call) => resultIds.has(call.id))
+    ? messages
+    : messages.slice(0, assistantIndex);
+}
+
 interface StoredCheckpoint {
   readonly checkpoint: Checkpoint;
   readonly persistence: Promise<void>;

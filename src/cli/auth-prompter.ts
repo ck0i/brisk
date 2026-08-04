@@ -27,8 +27,9 @@ export class TerminalAuthPrompter implements AuthPrompter {
 
   openBrowser(info: OAuthAuthInfo): void {
     if (info.instructions) this.write(`${info.instructions}\n`);
-    const target = info.launchUrl ?? info.url;
-    const opened = launchBrowser(target);
+    // launchUrl is a loopback copy target; open the provider URL directly.
+    const opened = launchBrowser(info.url);
+    const target = opened ? info.url : (info.launchUrl ?? info.url);
     this.write(opened ? "Opening the authorization page in your browser.\n" : "Open this URL:\n");
     this.write(`${target}\n`);
   }

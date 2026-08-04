@@ -4,16 +4,24 @@ import type { JsonSchema, ProviderToolSchema } from "../providers/types.ts";
 
 export type ToolOutputStream = "stdout" | "stderr" | "progress";
 
+export interface ToolPreview {
+  readonly summary: string;
+  readonly diff?: string;
+  readonly targetPaths?: readonly string[];
+}
+
 export interface ToolContext {
   readonly signal: AbortSignal;
   readonly callId: string;
   readonly toolName: string;
   emitOutput(stream: ToolOutputStream, delta: string): void;
+  emitPreview(preview: ToolPreview): void;
 }
 
 export interface ToolExecutionObserver {
   onStart?(call: ToolCall): void;
   onOutput?(call: ToolCall, stream: ToolOutputStream, delta: string): void;
+  onPreview?(call: ToolCall, preview: ToolPreview): void;
   onEnd?(call: ToolCall, result: ToolResultMessage): void;
 }
 
@@ -175,6 +183,11 @@ export class ToolRegistry {
           emitOutput(stream, delta) {
             if (!controller.signal.aborted && delta.length > 0) {
               notifyObserver(() => observer.onOutput?.(call, stream, delta));
+            }
+          },
+          emitPreview(preview) {
+            if (!controller.signal.aborted) {
+              notifyObserver(() => observer.onPreview?.(call, preview));
             }
           },
         }),

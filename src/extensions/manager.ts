@@ -466,6 +466,7 @@ export class ExtensionManager {
             callId: context.callId,
             toolName: context.toolName,
             emitOutput: context.emitOutput,
+            emitPreview: context.emitPreview,
           });
           const validatedResult = validateToolResult(result);
           if (!validatedResult.ok) throw new TypeError(validatedResult.error);

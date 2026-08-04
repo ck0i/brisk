@@ -3,9 +3,12 @@ import {
   type Api,
   type AssistantMessage as PiAssistantMessage,
   type AssistantMessageEvent,
+  type CacheRetention,
   type Context,
   type Message as PiMessage,
   type Model,
+  type ProviderPayload,
+  type ProviderSessionState,
   type SimpleStreamOptions,
   type Tool,
   type Usage as PiUsage,
@@ -42,6 +45,7 @@ export interface PiAiProviderOptions {
   readonly auth: CredentialResolver;
   readonly reasoning?: Effort;
   readonly sessionId?: string;
+  readonly cacheRetention?: CacheRetention;
   readonly stream?: PiStreamFunction;
   readonly preconnect?: (url: string) => void;
 }
@@ -52,6 +56,8 @@ export class PiAiProvider implements Provider {
   private readonly auth: CredentialResolver;
   private readonly reasoning: Effort | undefined;
   private sessionId: string | undefined;
+  private readonly cacheRetention: CacheRetention | undefined;
+  private readonly providerSessionState = new Map<string, ProviderSessionState>();
   private readonly streamUpstream: PiStreamFunction;
   private readonly preconnect: (url: string) => void;
 
@@ -60,6 +66,7 @@ export class PiAiProvider implements Provider {
     this.auth = options.auth;
     this.reasoning = options.reasoning;
     this.sessionId = options.sessionId;
+    this.cacheRetention = options.cacheRetention;
     this.streamUpstream =
       options.stream ??
       ((model, context, streamOptions) => streamSimple(model, context, streamOptions));
@@ -77,7 +84,13 @@ export class PiAiProvider implements Provider {
   }
 
   setSessionId(sessionId: string | undefined): void {
+    if (sessionId === this.sessionId) return;
+    this.closeProviderSessionState();
     this.sessionId = sessionId;
+  }
+
+  close(): void {
+    this.closeProviderSessionState();
   }
 
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
@@ -93,12 +106,22 @@ export class PiAiProvider implements Provider {
         signal: request.signal,
       });
       throwIfAborted(request.signal);
-      const context = translateContext(request.messages, request.tools, model);
+      const context = translateContext(
+        request.messages,
+        request.tools,
+        model,
+        Date.now(),
+        request.systemPrompt,
+      );
       const options: SimpleStreamOptions = {
         signal: request.signal,
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(this.reasoning === undefined ? {} : { reasoning: this.reasoning }),
         ...(sessionId === undefined ? {} : { sessionId }),
+        ...(this.cacheRetention === undefined ? {} : { cacheRetention: this.cacheRetention }),
+        // Pi's coding-agent path is stateless and relies on prompt-cache affinity, not stored responses.
+        statefulResponses: false,
+        providerSessionState: this.providerSessionState,
         ...(request.maxOutputTokens === undefined ? {} : { maxTokens: request.maxOutputTokens }),
       };
       const upstream = this.streamUpstream(model, context, options);
@@ -122,6 +145,17 @@ export class PiAiProvider implements Provider {
     }
   }
 
+  private closeProviderSessionState(): void {
+    for (const state of this.providerSessionState.values()) {
+      try {
+        state.close();
+      } catch {
+        // Provider state cleanup must not prevent session switching or shutdown.
+      }
+    }
+    this.providerSessionState.clear();
+  }
+
   private preconnectBestEffort(model: Model<Api>): void {
     if (model.baseUrl.length === 0) return;
     queueMicrotask(() => {
@@ -139,9 +173,11 @@ export function translateContext(
   tools: readonly ProviderToolSchema[],
   model: Model<Api>,
   now = Date.now(),
+  systemPrompt: readonly string[] = [],
 ): Context {
   const timestampBase = now - messages.length;
   return {
+    ...(systemPrompt.length === 0 ? {} : { systemPrompt: [...systemPrompt] }),
     messages: messages.map((message, index) =>
       translateMessage(message, model, message.timestamp ?? timestampBase + index),
     ),
@@ -211,17 +247,22 @@ function translateAssistantMessage(
   currentModel: Model<Api>,
   fallbackTimestamp: number,
 ): PiAssistantMessage {
-  const content: PiAssistantMessage["content"] = [];
-  if (message.thinking !== undefined)
-    content.push({ type: "thinking", thinking: message.thinking });
-  if (message.content.length > 0) content.push({ type: "text", text: message.content });
-  for (const call of message.toolCalls) {
-    content.push({
-      type: "toolCall",
-      id: call.id,
-      name: call.name,
-      arguments: parseToolArguments(call.arguments, call.name),
-    });
+  const replay = message.providerReplay;
+  const content: PiAssistantMessage["content"] = replay
+    ? (structuredClone([...replay.content]) as unknown as PiAssistantMessage["content"])
+    : [];
+  if (!replay) {
+    if (message.thinking !== undefined)
+      content.push({ type: "thinking", thinking: message.thinking });
+    if (message.content.length > 0) content.push({ type: "text", text: message.content });
+    for (const call of message.toolCalls) {
+      content.push({
+        type: "toolCall",
+        id: call.id,
+        name: call.name,
+        arguments: parseToolArguments(call.arguments, call.name),
+      });
+    }
   }
 
   return {
@@ -231,7 +272,13 @@ function translateAssistantMessage(
     provider: message.provider ?? currentModel.provider,
     model: message.model ?? currentModel.id,
     usage: toPiUsage(message.usage),
-    stopReason: message.toolCalls.length > 0 ? "toolUse" : "stop",
+    stopReason: replay?.stopReason ?? (message.toolCalls.length > 0 ? "toolUse" : "stop"),
+    ...(replay?.responseId === undefined ? {} : { responseId: replay.responseId }),
+    ...(replay?.providerPayload === undefined
+      ? {}
+      : {
+          providerPayload: structuredClone(replay.providerPayload) as unknown as ProviderPayload,
+        }),
     timestamp: message.timestamp ?? fallbackTimestamp,
   };
 }

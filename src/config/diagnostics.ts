@@ -34,6 +34,7 @@ const parseOptions: ParseOptions = {
 
 const topLevelFields = new Set([
   "defaultModel",
+  "defaultSubtaskModel",
   "permissionMode",
   "maxSubagents",
   "maxSubagentDepth",
@@ -51,6 +52,14 @@ const modelFields = new Set([
   "input",
   "toolCalling",
   "name",
+  "compat",
+]);
+const modelCompatFields = new Set([
+  "cacheControlFormat",
+  "promptCacheSessionHeader",
+  "supportsPromptCacheBreakpoints",
+  "promptCacheBreakpointTtl",
+  "supportsLongPromptCacheRetention",
 ]);
 const inlineSecretFields = new Set([
   "apikey",
@@ -161,13 +170,17 @@ function collectStructuralDiagnostics(value: unknown, source: string): ConfigDia
     if (!Array.isArray(provider.models)) continue;
     for (const [index, model] of provider.models.entries()) {
       if (isRecord(model)) {
-        warnUnknownFields(
-          model,
-          modelFields,
-          [...providerPath, "models", index],
-          source,
-          diagnostics,
-        );
+        const modelPath = [...providerPath, "models", index];
+        warnUnknownFields(model, modelFields, modelPath, source, diagnostics);
+        if (isRecord(model.compat)) {
+          warnUnknownFields(
+            model.compat,
+            modelCompatFields,
+            [...modelPath, "compat"],
+            source,
+            diagnostics,
+          );
+        }
       }
     }
   }

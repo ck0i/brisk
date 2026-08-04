@@ -1,4 +1,5 @@
-import type { Api, Model } from "@oh-my-pi/pi-catalog";
+import type { CacheRetention } from "@oh-my-pi/pi-ai";
+import type { Api, Model, OpenAICompat } from "@oh-my-pi/pi-catalog";
 
 import type { BriskConfig, CustomProviderConfig } from "../config/schema.ts";
 import type { ConfigPaths } from "../config/paths.ts";
@@ -13,6 +14,7 @@ import {
   type ApiKeyResolutionOptions,
   type CredentialResolver,
 } from "./pi-ai-provider.ts";
+import { resolvePromptCacheRetention } from "./prompt-cache.ts";
 
 export interface ProviderServiceOptions {
   readonly paths: ConfigPaths;
@@ -77,6 +79,7 @@ export class ProviderService {
   readonly credentials: ConfigCredentialResolver;
   private readonly listeners = new Set<ProviderServiceListener>();
   private readonly preferredModel: string | undefined;
+  private readonly cacheRetention: CacheRetention;
   private sessionId: string | undefined;
   private selectedValue: ModelSelection | undefined;
   private transportValue: PiAiProvider | undefined;
@@ -92,6 +95,7 @@ export class ProviderService {
     this.registry = registry;
     this.credentials = credentials;
     this.preferredModel = options.preferredModel ?? options.config.defaultModel;
+    this.cacheRetention = resolvePromptCacheRetention(options.environment);
     this.sessionId = options.sessionId;
   }
 
@@ -166,6 +170,7 @@ export class ProviderService {
       );
       if (!refreshed?.available || !upstream) {
         this.selectedValue = undefined;
+        this.transportValue?.close();
         this.transportValue = undefined;
         this.publish();
       } else {
@@ -194,6 +199,7 @@ export class ProviderService {
         model: selected.upstream,
         auth: this.credentials,
         sessionId,
+        cacheRetention: this.cacheRetention,
       }),
       modelSpecifier: resolvedSpecifier,
     };
@@ -209,6 +215,7 @@ export class ProviderService {
       this.transportValue = new PiAiProvider({
         model: upstream,
         auth: this.credentials,
+        cacheRetention: this.cacheRetention,
         ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }),
       });
     }
@@ -229,6 +236,8 @@ export class ProviderService {
     if (this.closed) return;
     this.closed = true;
     this.listeners.clear();
+    this.transportValue?.close();
+    this.transportValue = undefined;
     this.auth.close();
   }
 
@@ -256,6 +265,7 @@ export function customModelsFromConfig(
       input: model.input,
       supportsTools: model.toolCalling,
       keyless: definition.keyless ?? false,
+      ...(model.compat === undefined ? {} : { compat: model.compat as OpenAICompat }),
     })),
   );
 }

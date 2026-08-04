@@ -4,6 +4,14 @@ const nonEmptyString = z.string().trim().min(1);
 const positiveInteger = z.number().int().positive();
 const nonNegativeInteger = z.number().int().nonnegative();
 
+const promptCacheCompatSchema = z.object({
+  cacheControlFormat: z.literal("anthropic").optional(),
+  promptCacheSessionHeader: z.literal("x-grok-conv-id").optional(),
+  supportsPromptCacheBreakpoints: z.boolean().optional(),
+  promptCacheBreakpointTtl: z.literal("30m").optional(),
+  supportsLongPromptCacheRetention: z.boolean().optional(),
+});
+
 export const customModelSchema = z.object({
   id: nonEmptyString,
   contextWindow: positiveInteger,
@@ -11,6 +19,7 @@ export const customModelSchema = z.object({
   input: z.array(z.enum(["text", "image"])).min(1),
   toolCalling: z.boolean(),
   name: nonEmptyString.optional(),
+  compat: promptCacheCompatSchema.optional(),
 });
 
 export const customProviderSchema = z.object({
@@ -30,6 +39,7 @@ export const customProviderSchema = z.object({
 
 export const configSchema = z.object({
   defaultModel: nonEmptyString.optional(),
+  defaultSubtaskModel: nonEmptyString.optional(),
   permissionMode: z.enum(["safe", "write", "yolo"]).default("write"),
   maxSubagents: nonNegativeInteger.default(3),
   maxSubagentDepth: nonNegativeInteger.default(1),
@@ -37,7 +47,7 @@ export const configSchema = z.object({
     .object({
       enabled: z.boolean().default(true),
       thresholdPercent: z.number().int().min(1).max(100).default(85),
-      keepRecentTokens: nonNegativeInteger.default(20_000),
+      keepRecentTokens: positiveInteger.default(20_000),
     })
     .default({ enabled: true, thresholdPercent: 85, keepRecentTokens: 20_000 }),
   ui: z
@@ -60,6 +70,7 @@ const customProviderLayerSchema = z.object({
 
 export const configLayerSchema = z.object({
   defaultModel: configSchema.shape.defaultModel,
+  defaultSubtaskModel: configSchema.shape.defaultSubtaskModel,
   permissionMode: z.enum(["safe", "write", "yolo"]).optional(),
   maxSubagents: nonNegativeInteger.optional(),
   maxSubagentDepth: nonNegativeInteger.optional(),
@@ -67,7 +78,7 @@ export const configLayerSchema = z.object({
     .object({
       enabled: z.boolean().optional(),
       thresholdPercent: z.number().int().min(1).max(100).optional(),
-      keepRecentTokens: nonNegativeInteger.optional(),
+      keepRecentTokens: positiveInteger.optional(),
     })
     .optional(),
   ui: z

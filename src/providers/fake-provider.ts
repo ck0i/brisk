@@ -56,7 +56,12 @@ export class FakeProvider implements Provider {
   async *stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
     const turn = this.turns[this.nextTurn];
     this.nextTurn += 1;
-    this.requests.push({ ...request, messages: [...request.messages], tools: [...request.tools] });
+    this.requests.push({
+      ...request,
+      systemPrompt: [...request.systemPrompt],
+      messages: [...request.messages],
+      tools: [...request.tools],
+    });
 
     if (!turn) {
       throw new NormalizedProviderError("Fake provider script exhausted", {

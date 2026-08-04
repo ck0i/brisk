@@ -27,6 +27,7 @@ export interface ProviderToolSchema {
 }
 
 export interface ProviderRequest {
+  readonly systemPrompt: readonly string[];
   readonly messages: readonly Message[];
   readonly tools: readonly ProviderToolSchema[];
   readonly signal: AbortSignal;
@@ -37,4 +38,5 @@ export interface ProviderRequest {
 
 export interface Provider {
   stream(request: ProviderRequest): AsyncIterable<ProviderEvent>;
+  close?(): void;
 }

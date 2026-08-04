@@ -401,8 +401,14 @@ export function createPatchOverlayTools(overlay: PatchOverlayWorkspace): PatchOv
         "Stage a native multi-file Hashline patch in the isolated overlay. Every section must use an exact [path#TAG] header returned by read.",
       inputSchema: EDIT_SCHEMA,
       parse: parseEditInput,
-      async execute(input) {
-        return { content: formatMutationResult(await overlay.edit(input)) };
+      async execute(input, context) {
+        const preview = await overlay.edit(input);
+        context.emitPreview({
+          summary: preview.files.map((file) => file.path).join(", "),
+          diff: preview.diff,
+          targetPaths: preview.files.map((file) => file.path),
+        });
+        return { content: formatMutationResult(preview) };
       },
     },
     write: {
@@ -411,8 +417,14 @@ export function createPatchOverlayTools(overlay: PatchOverlayWorkspace): PatchOv
         "Create or explicitly replace a UTF-8 text file in the isolated overlay. This never writes the real workspace.",
       inputSchema: WRITE_SCHEMA,
       parse: parseWriteInput,
-      async execute(input) {
-        return { content: formatMutationResult(await overlay.write(input)) };
+      async execute(input, context) {
+        const preview = await overlay.write(input);
+        context.emitPreview({
+          summary: preview.files.map((file) => file.path).join(", "),
+          diff: preview.diff,
+          targetPaths: preview.files.map((file) => file.path),
+        });
+        return { content: formatMutationResult(preview) };
       },
     },
   };

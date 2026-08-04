@@ -8,6 +8,7 @@ import {
 import type {
   AssistantMessage,
   Message,
+  ProviderReplay,
   ToolCall,
   ToolResultMessage,
   Usage,
@@ -15,6 +16,7 @@ import type {
 } from "./messages.ts";
 import type { Provider } from "../providers/types.ts";
 import { ToolRegistry } from "../tools/registry.ts";
+import { buildSystemPrompt } from "./system-prompt.ts";
 
 export interface AgentContextLifecycle {
   /** Return the provider-ready view without changing the supplied full transcript. */
@@ -43,6 +45,10 @@ export interface AgentLoopOptions {
   readonly initialUsage?: Usage;
   readonly contextLifecycle?: AgentContextLifecycle;
   readonly maxOutputTokens?: number;
+  /** Additional user-delegated system blocks, ordered from lower to higher precedence. */
+  readonly additionalSystemPrompt?: readonly string[];
+  /** Identifies whether this loop is the root session or a delegated child. */
+  readonly sessionRolePrompt?: string;
   /** Stop after appending the current tool results when the callback returns true. */
   readonly stopWhen?: () => boolean;
 }
@@ -74,6 +80,8 @@ export class AgentLoop {
   private readonly retryDelayMs: number;
   private readonly contextLifecycle: AgentContextLifecycle | undefined;
   private readonly maxOutputTokens: number | undefined;
+  private readonly additionalSystemPrompt: readonly string[];
+  private readonly sessionRolePrompt: string | undefined;
   private readonly stopWhen: (() => boolean) | undefined;
   private readonly history: Message[];
   private readonly listeners = new Set<AgentEventListener>();
@@ -90,6 +98,8 @@ export class AgentLoop {
     this.accumulatedUsage = options.initialUsage ?? { inputTokens: 0, outputTokens: 0 };
     this.contextLifecycle = options.contextLifecycle;
     this.maxOutputTokens = options.maxOutputTokens;
+    this.additionalSystemPrompt = [...(options.additionalSystemPrompt ?? [])];
+    this.sessionRolePrompt = options.sessionRolePrompt;
     this.stopWhen = options.stopWhen;
     this.maxRetries = options.maxRetries ?? 2;
     this.retryDelayMs = options.retryDelayMs ?? 50;
@@ -227,6 +237,14 @@ export class AgentLoop {
               delta,
             });
           },
+          onPreview: (call, preview) => {
+            this.publish({
+              type: "tool_execution_preview",
+              id: call.id,
+              name: call.name,
+              preview,
+            });
+          },
           onEnd: (call, result) => {
             this.publish({
               type: "tool_execution_end",
@@ -288,6 +306,7 @@ export class AgentLoop {
     let content = "";
     let thinking = "";
     let usage: Usage | undefined;
+    let providerReplay: ProviderReplay | undefined;
     let started = false;
     let ended = false;
     let upstreamIdentity:
@@ -304,9 +323,15 @@ export class AgentLoop {
       ? await this.contextLifecycle.prepare(this.history, this.model, signal)
       : this.history;
     throwIfAborted(signal);
+    const toolSchemas = this.tools.schemas;
     const events = this.provider.stream({
+      systemPrompt: buildSystemPrompt(
+        toolSchemas,
+        this.additionalSystemPrompt,
+        this.sessionRolePrompt,
+      ),
       messages: [...activeMessages],
-      tools: this.tools.schemas,
+      tools: toolSchemas,
       signal,
       model: this.model,
       ...(this.maxOutputTokens === undefined ? {} : { maxOutputTokens: this.maxOutputTokens }),
@@ -380,6 +405,7 @@ export class AgentLoop {
           break;
         case "response_end":
           ended = true;
+          providerReplay = event.providerReplay;
           this.publish(event);
           break;
         case "error":
@@ -404,6 +430,7 @@ export class AgentLoop {
       toolCalls,
       ...(thinking.length === 0 ? {} : { thinking }),
       ...(usage === undefined ? {} : { usage }),
+      ...(providerReplay === undefined ? {} : { providerReplay }),
       ...upstreamIdentity,
     };
     return { assistant };

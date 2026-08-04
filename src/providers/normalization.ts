@@ -12,7 +12,7 @@ import {
   type NormalizedProviderErrorKind,
   type ProviderEvent,
 } from "../core/events.ts";
-import type { Usage } from "../core/messages.ts";
+import type { JsonValue, ProviderReplay, Usage } from "../core/messages.ts";
 import { redactSecrets, redactedErrorMessage } from "./secret-redaction.ts";
 
 export interface ProviderErrorNormalizationOptions {
@@ -63,7 +63,11 @@ export function normalizeAssistantMessageEvent(
     case "done":
       return [
         { type: "usage", usage: normalizeUsage(event.message.usage) },
-        { type: "response_end", stopReason: normalizeStopReason(event.reason) },
+        {
+          type: "response_end",
+          stopReason: normalizeStopReason(event.reason),
+          ...providerReplay(event.message),
+        },
       ];
     case "error":
       return [
@@ -85,6 +89,30 @@ export function normalizeAssistantMessageEvent(
       return [];
     case "image_end":
       throw invalidEvent("pi-ai emitted an image output, which Brisk does not support yet");
+  }
+}
+
+function providerReplay(message: AssistantMessage): { providerReplay?: ProviderReplay } {
+  const content = jsonClone(message.content);
+  if (!Array.isArray(content)) return {};
+  const providerPayload = jsonClone(message.providerPayload);
+  return {
+    providerReplay: {
+      content,
+      ...(message.responseId === undefined ? {} : { responseId: message.responseId }),
+      ...(providerPayload === undefined ? {} : { providerPayload }),
+      stopReason: message.stopReason,
+    },
+  };
+}
+
+function jsonClone(value: unknown): JsonValue | undefined {
+  if (value === undefined) return undefined;
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? undefined : (JSON.parse(serialized) as JsonValue);
+  } catch {
+    return undefined;
   }
 }
 

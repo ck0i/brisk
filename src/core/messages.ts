@@ -17,6 +17,14 @@ export interface ToolCall {
   readonly arguments: string;
 }
 
+/** JSON-safe provider-native data retained for exact history replay and prompt-cache stability. */
+export interface ProviderReplay {
+  readonly content: readonly JsonValue[];
+  readonly responseId?: string;
+  readonly providerPayload?: JsonValue;
+  readonly stopReason?: "stop" | "length" | "toolUse" | "error" | "aborted";
+}
+
 export interface ImageContent {
   readonly type: "image";
   /** raw base64 without a data URL prefix */
@@ -40,6 +48,8 @@ export interface AssistantMessage {
   readonly thinking?: string;
   readonly toolCalls: readonly ToolCall[];
   readonly usage?: Usage;
+  /** provider-native blocks/signatures retained for exact same-session history replay */
+  readonly providerReplay?: ProviderReplay;
   /** upstream identity retained for correct cross-model history translation */
   readonly provider?: string;
   readonly api?: string;

@@ -87,6 +87,7 @@ export interface SubagentManagerOptions {
   readonly defaultModel: string;
   readonly maxConcurrency?: number;
   readonly maxDepth?: number;
+  readonly additionalSystemPrompt?: readonly string[];
   readonly childSessionFactory?: (
     context: ChildSessionAdapterContext,
   ) => ChildSessionAdapter | Promise<ChildSessionAdapter>;

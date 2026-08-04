@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import { AgentLoop, type AgentContextLifecycle } from "../core/agent-loop.ts";
 import type { JsonValue, Message } from "../core/messages.ts";
+import type { Provider } from "../providers/types.ts";
 import { ToolRegistry } from "../tools/registry.ts";
-import { CheckpointStore, type Checkpoint } from "./checkpoint.ts";
+import { CheckpointStore, withoutPendingToolTurn, type Checkpoint } from "./checkpoint.ts";
+import { buildChildRolePrompt } from "./child-prompt.ts";
 import { ChildSession } from "./child-session.ts";
 import { parseTaskInput } from "./result.ts";
 import { createCompleteTaskTool, createTaskTool } from "./task-tool.ts";
@@ -27,6 +29,7 @@ export class SubagentManager {
   private readonly providerFactory: SubagentManagerOptions["providerFactory"];
   private defaultModel: string;
   private readonly maxDepth: number;
+  private readonly additionalSystemPrompt: readonly string[];
   private readonly childSessionFactory: SubagentManagerOptions["childSessionFactory"];
   private readonly childToolsFactory: SubagentManagerOptions["childToolsFactory"];
   private readonly createChildSessionId: () => string;
@@ -41,6 +44,7 @@ export class SubagentManager {
     this.providerFactory = options.providerFactory;
     this.defaultModel = options.defaultModel;
     this.maxDepth = options.maxDepth ?? 1;
+    this.additionalSystemPrompt = [...(options.additionalSystemPrompt ?? [])];
     this.childSessionFactory = options.childSessionFactory;
     this.childToolsFactory = options.childToolsFactory;
     this.createChildSessionId = options.createChildSessionId ?? randomUUID;
@@ -155,7 +159,7 @@ export class SubagentManager {
       pending = Promise.resolve(source({ signal: sourceController.signal }))
         .then((messages) => {
           throwIfAborted(sourceController.signal);
-          return this.checkpointStore.capture(messages);
+          return this.checkpointStore.capture(withoutPendingToolTurn(messages));
         })
         .finally(unlink);
       this.pendingCheckpoints.set(source, pending);
@@ -209,6 +213,7 @@ export class SubagentManager {
 
   private async runChild(session: ChildSession): Promise<TaskResult> {
     let release: (() => void) | undefined;
+    let provider: Provider | undefined;
     let result: TaskResult | undefined;
     let cancelled = false;
     try {
@@ -226,7 +231,7 @@ export class SubagentManager {
         throwIfAborted(session.controller.signal);
         session.setAdapter(adapter);
       }
-      const provider = await this.providerFactory(providerContext);
+      provider = await this.providerFactory(providerContext);
       throwIfAborted(session.controller.signal);
 
       let loop: AgentLoop | undefined;
@@ -255,6 +260,12 @@ export class SubagentManager {
         model: session.model,
         tools,
         contextLifecycle: checkpointLifecycle(session.checkpoint),
+        additionalSystemPrompt: this.additionalSystemPrompt,
+        sessionRolePrompt: buildChildRolePrompt({
+          depth: session.depth,
+          maxDepth: this.maxDepth,
+          mode: session.input.mode,
+        }),
         ...(session.input.maxOutputTokens === undefined
           ? {}
           : { maxOutputTokens: session.input.maxOutputTokens }),
@@ -283,6 +294,7 @@ export class SubagentManager {
         };
       }
     } finally {
+      provider?.close?.();
       release?.();
     }
 

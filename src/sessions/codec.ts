@@ -2,6 +2,7 @@ import type {
   AssistantMessage,
   ImageContent,
   JsonValue,
+  ProviderReplay,
   ToolCall,
   ToolResultMessage,
   Usage,
@@ -469,6 +470,9 @@ function parseAssistantMessage(value: unknown): AssistantMessage | undefined {
   }
   const usage = value.usage === undefined ? undefined : parseUsage(value.usage);
   if (value.usage !== undefined && !usage) return undefined;
+  const providerReplay =
+    value.providerReplay === undefined ? undefined : parseProviderReplay(value.providerReplay);
+  if (value.providerReplay !== undefined && !providerReplay) return undefined;
   if (!isOptionalString(value.provider)) return undefined;
   if (!isOptionalString(value.api)) return undefined;
   if (!isOptionalString(value.model)) return undefined;
@@ -479,10 +483,35 @@ function parseAssistantMessage(value: unknown): AssistantMessage | undefined {
     toolCalls,
     ...(value.thinking === undefined ? {} : { thinking: value.thinking }),
     ...(usage === undefined ? {} : { usage }),
+    ...(providerReplay === undefined ? {} : { providerReplay }),
     ...(value.provider === undefined ? {} : { provider: value.provider }),
     ...(value.api === undefined ? {} : { api: value.api }),
     ...(value.model === undefined ? {} : { model: value.model }),
     ...(value.timestamp === undefined ? {} : { timestamp: value.timestamp }),
+  };
+}
+
+function parseProviderReplay(value: unknown): ProviderReplay | undefined {
+  if (!isRecord(value) || !Array.isArray(value.content) || !value.content.every(isJsonValue)) {
+    return undefined;
+  }
+  if (!isOptionalString(value.responseId)) return undefined;
+  if (value.providerPayload !== undefined && !isJsonValue(value.providerPayload)) return undefined;
+  if (
+    value.stopReason !== undefined &&
+    value.stopReason !== "stop" &&
+    value.stopReason !== "length" &&
+    value.stopReason !== "toolUse" &&
+    value.stopReason !== "error" &&
+    value.stopReason !== "aborted"
+  ) {
+    return undefined;
+  }
+  return {
+    content: value.content,
+    ...(value.responseId === undefined ? {} : { responseId: value.responseId }),
+    ...(value.providerPayload === undefined ? {} : { providerPayload: value.providerPayload }),
+    ...(value.stopReason === undefined ? {} : { stopReason: value.stopReason }),
   };
 }
 
@@ -596,7 +625,13 @@ function addUsage(totals: SessionUsageTotals, usage: Usage): SessionUsageTotals 
     outputTokens: totals.outputTokens + usage.outputTokens,
     cacheReadTokens: totals.cacheReadTokens + (usage.cacheReadTokens ?? 0),
     cacheWriteTokens: totals.cacheWriteTokens + (usage.cacheWriteTokens ?? 0),
-    totalTokens: totals.totalTokens + (usage.totalTokens ?? usage.inputTokens + usage.outputTokens),
+    totalTokens:
+      totals.totalTokens +
+      (usage.totalTokens ??
+        usage.inputTokens +
+          usage.outputTokens +
+          (usage.cacheReadTokens ?? 0) +
+          (usage.cacheWriteTokens ?? 0)),
     cost: totals.cost + (usage.cost ?? 0),
   };
 }

@@ -90,6 +90,7 @@ jobs:
       - name: Publish npm package
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           if [ -z "$NPM_TOKEN" ]; then
@@ -103,8 +104,7 @@ jobs:
             fi
             echo "brisk-ai $VERSION was published by an earlier attempt; keeping it."
           else
-            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/brisk.npmrc"
-            NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/brisk.npmrc" bun publish --access public
+            bun publish --access public
           fi
 
       - name: Tag the generated release version

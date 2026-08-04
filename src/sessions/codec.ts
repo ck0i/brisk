@@ -10,6 +10,9 @@ import type {
 } from "../core/messages.ts";
 import {
   SESSION_SCHEMA_VERSION,
+  isCanonicalWorkspace,
+  isSafeSessionId,
+  sessionFirstPrompt,
   type ChildSessionReference,
   type CompactionMetadata,
   type LoadedSessionEntry,
@@ -18,8 +21,6 @@ import {
   type SessionMetadata,
   type SessionUsageTotals,
   type UnknownSessionEntry,
-  isCanonicalWorkspace,
-  isSafeSessionId,
 } from "./types.ts";
 
 export type EntryParseResult =
@@ -327,6 +328,13 @@ export function parseSessionMetadata(value: unknown): SessionMetadata | undefine
   if (!isNonemptyString(value.selectedProvider) || !isNonemptyString(value.selectedModel)) {
     return undefined;
   }
+  if (
+    value.firstPrompt !== undefined &&
+    (typeof value.firstPrompt !== "string" ||
+      sessionFirstPrompt(value.firstPrompt) !== value.firstPrompt)
+  ) {
+    return undefined;
+  }
   const usageTotals = parseUsageTotals(value.usageTotals);
   if (!usageTotals) return undefined;
   if (!isNonnegativeInteger(value.compactionCount)) return undefined;
@@ -343,6 +351,7 @@ export function parseSessionMetadata(value: unknown): SessionMetadata | undefine
     id: value.id,
     title: value.title,
     workspace: value.workspace,
+    ...(value.firstPrompt === undefined ? {} : { firstPrompt: value.firstPrompt }),
     createdAt: value.createdAt,
     updatedAt: value.updatedAt,
     selectedProvider: value.selectedProvider,
@@ -362,6 +371,14 @@ export function applyEntryToMetadata(
   let next = current;
   if (entry.type === "session_metadata") {
     next = entry.metadata;
+  } else if (
+    next &&
+    entry.type === "user_message" &&
+    entry.message.internal === undefined &&
+    next.firstPrompt === undefined
+  ) {
+    const firstPrompt = sessionFirstPrompt(entry.message.content);
+    if (firstPrompt !== undefined) next = { ...next, firstPrompt };
   } else if (next && entry.type === "model_change") {
     next = { ...next, selectedProvider: entry.provider, selectedModel: entry.model };
   } else if (next && entry.type === "usage") {

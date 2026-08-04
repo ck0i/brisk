@@ -36,6 +36,9 @@ describe("SessionRuntime", () => {
     await loop.submit("hello");
     await first.detach();
     expect(first.messages.map((message) => message.content)).toEqual(["hello", "persisted"]);
+    expect((await first.listWorkspace()).find((record) => record.id === id)?.firstPrompt).toBe(
+      "hello",
+    );
     await first.recordModelChange("fake", "changed");
     await first.close();
 

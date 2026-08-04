@@ -55,6 +55,7 @@ interface SessionIndexCache {
 const transcriptPattern = /^([A-Za-z0-9][A-Za-z0-9_-]{0,127})\.jsonl$/;
 const indexRelevantTypes = new Set([
   "session_metadata",
+  "user_message",
   "model_change",
   "usage",
   "compaction",

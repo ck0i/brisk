@@ -10,6 +10,7 @@ import {
   type DoctorDependencies,
 } from "../../src/cli/doctor-command.ts";
 import { resolveConfigPaths, type ConfigPaths } from "../../src/config/paths.ts";
+import { SESSION_INDEX_SCHEMA_VERSION } from "../../src/sessions/types.ts";
 
 const temporaryDirectories: string[] = [];
 const secret = "BRISK_TEST_DOCTOR_SECRET_7f551d";
@@ -282,7 +283,7 @@ async function writeValidSessionIndex(paths: ConfigPaths): Promise<void> {
   await writeFile(
     paths.sessionIndexPath,
     `${JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: SESSION_INDEX_SCHEMA_VERSION,
       updatedAt: "2026-01-01T00:00:00.000Z",
       sessions: [],
     })}\n`,

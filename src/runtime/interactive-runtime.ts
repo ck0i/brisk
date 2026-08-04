@@ -747,7 +747,7 @@ export class InteractiveRuntime {
       selectedId: session.sessionId,
       options: records.map((record) => ({
         id: record.id,
-        label: record.title,
+        label: record.firstPrompt ?? "No prompts yet",
         description: `${record.updatedAt.slice(0, 16).replace("T", " ")} · ${record.selectedProvider}/${record.selectedModel}`,
       })),
     });

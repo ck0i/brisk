@@ -12,7 +12,8 @@ import type {
 
 export const SESSION_SCHEMA_VERSION = 1;
 export const SESSION_TRANSCRIPT_VERSION = 1;
-export const SESSION_INDEX_SCHEMA_VERSION = 1;
+export const SESSION_INDEX_SCHEMA_VERSION = 2;
+export const SESSION_FIRST_PROMPT_MAX_LENGTH = 80;
 
 export type SessionFsyncPolicy = "never" | "flush" | "always";
 
@@ -35,6 +36,8 @@ export interface SessionMetadata {
   readonly id: string;
   readonly title: string;
   readonly workspace: string;
+  /** Bounded, single-line preview of the first user-authored prompt, derived from the transcript. */
+  readonly firstPrompt?: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly selectedProvider: string;
@@ -352,6 +355,22 @@ export function emptyUsageTotals(): SessionUsageTotals {
     totalTokens: 0,
     cost: 0,
   };
+}
+
+/** Produces a terminal-safe, single-line label without retaining an unbounded prompt in the index. */
+export function sessionFirstPrompt(content: string): string | undefined {
+  const normalized = [...content]
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f) ? " " : character;
+    })
+    .join("")
+    .replace(/\s+/gu, " ")
+    .trim();
+  if (normalized.length === 0) return undefined;
+  const characters = [...normalized];
+  if (characters.length <= SESSION_FIRST_PROMPT_MAX_LENGTH) return normalized;
+  return `${characters.slice(0, SESSION_FIRST_PROMPT_MAX_LENGTH - 1).join("")}…`;
 }
 
 export function createSessionMetadata(

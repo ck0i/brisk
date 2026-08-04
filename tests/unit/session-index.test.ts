@@ -4,11 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  SESSION_FIRST_PROMPT_MAX_LENGTH,
+  SESSION_INDEX_SCHEMA_VERSION,
   SessionIndex,
   SessionRepository,
   SessionStore,
   type CreateSessionOptions,
   type SessionIndexIO,
+  sessionFirstPrompt,
   type SessionMetadata,
 } from "../../src/sessions/index.ts";
 
@@ -32,7 +35,7 @@ describe("session index and repository", () => {
       await writeFile(
         layout.sessionIndexPath,
         `${JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: SESSION_INDEX_SCHEMA_VERSION,
           updatedAt: "2026-01-01T00:00:04.000Z",
           sessions: records,
         })}\n`,
@@ -68,12 +71,61 @@ describe("session index and repository", () => {
     }
   });
 
+  test("rebuilds a legacy cache so existing sessions gain first-prompt previews", async () => {
+    const layout = await createLayout();
+    try {
+      const store = clockedStore(layout.sessionsDir);
+      const metadata = await store.create(createOptions("legacy", layout.workspaceA));
+      await store.append("legacy", {
+        type: "user_message",
+        message: { role: "user", content: "existing session prompt" },
+      });
+      await writeFile(
+        layout.sessionIndexPath,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          updatedAt: "2026-01-01T00:00:02.000Z",
+          sessions: [metadata],
+        })}\n`,
+        { mode: 0o600 },
+      );
+
+      const index = new SessionIndex({
+        sessionsDir: layout.sessionsDir,
+        sessionIndexPath: layout.sessionIndexPath,
+      });
+      expect((await index.load())[0]?.firstPrompt).toBe("existing session prompt");
+      expect(index.loadInfo?.source).toBe("rebuild");
+    } finally {
+      await rm(layout.root, { recursive: true, force: true });
+    }
+  });
+
+  test("bounds and sanitizes prompt previews for a single picker line", () => {
+    const escape = String.fromCharCode(27);
+    const preview = sessionFirstPrompt(`  first\n${escape}second ${"x".repeat(100)}  `);
+    expect(preview).toBeDefined();
+    expect(preview).not.toContain("\n");
+    expect(preview).not.toContain(escape);
+    expect(Array.from(preview ?? "")).toHaveLength(SESSION_FIRST_PROMPT_MAX_LENGTH);
+    expect(preview?.endsWith("…")).toBe(true);
+  });
+
   test("rebuilds a corrupt cache from only matching transcripts with current metadata", async () => {
     const layout = await createLayout();
     try {
       const store = clockedStore(layout.sessionsDir);
       await store.create(createOptions("session-a", layout.workspaceA));
       await store.appendBatch("session-a", [
+        {
+          type: "user_message",
+          message: { role: "user", content: "hidden control", internal: "goal-control" },
+        },
+        {
+          type: "user_message",
+          message: { role: "user", content: "  First prompt\nwith\tspacing  " },
+        },
+        { type: "user_message", message: { role: "user", content: "later prompt" } },
         { type: "model_change", provider: "provider-b", model: "model-b" },
         { type: "usage", usage: { inputTokens: 7, outputTokens: 4, totalTokens: 11 } },
         { type: "compaction", compaction: { summary: "summary" } },
@@ -93,6 +145,7 @@ describe("session index and repository", () => {
       expect(rebuilt.map((item) => item.id).sort()).toEqual(["session-a", "session-b"]);
       expect(await index.get("session-a")).toMatchObject({
         selectedProvider: "provider-b",
+        firstPrompt: "First prompt with spacing",
         selectedModel: "model-b",
         usageTotals: { inputTokens: 7, outputTokens: 4, totalTokens: 11 },
         compactionCount: 1,
@@ -102,7 +155,10 @@ describe("session index and repository", () => {
 
       const cache: unknown = JSON.parse(await readFile(layout.sessionIndexPath, "utf8"));
       expect(cache).toEqual(
-        expect.objectContaining({ schemaVersion: 1, sessions: expect.any(Array) }),
+        expect.objectContaining({
+          schemaVersion: SESSION_INDEX_SCHEMA_VERSION,
+          sessions: expect.any(Array),
+        }),
       );
     } finally {
       await rm(layout.root, { recursive: true, force: true });
@@ -164,9 +220,11 @@ describe("session index and repository", () => {
         { role: "user", content: "durable event" },
       ]);
 
+      expect((await repository.open("repository")).metadata.firstPrompt).toBe("durable event");
       failRename = false;
       const rebuilt = await repository.rebuildIndex();
       expect(rebuilt.map((item) => item.id)).toEqual(["repository"]);
+      expect(rebuilt[0]?.firstPrompt).toBe("durable event");
       expect(repository.lastIndexError).toBeUndefined();
       expect((await repository.continueLatest(layout.workspaceA))?.metadata.id).toBe("repository");
     } finally {

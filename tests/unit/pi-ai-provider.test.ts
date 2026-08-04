@@ -248,6 +248,8 @@ describe("PiAiProvider stream adapter", () => {
       sessionId: "session-test",
       cacheRetention: "long",
       reasoning: "high" as Effort,
+      streamFirstEventTimeoutMs: 90_000,
+      streamIdleTimeoutMs: 90_000,
       preconnect: (url) => warmed.push(url),
       stream: (selected, context, options) => {
         captures.push({ model: selected, context, options });
@@ -283,6 +285,8 @@ describe("PiAiProvider stream adapter", () => {
       reasoning: "high",
       statefulResponses: false,
       maxTokens: 42,
+      streamFirstEventTimeoutMs: 90_000,
+      streamIdleTimeoutMs: 90_000,
     });
     expect(captures[0]?.options.providerSessionState).toBeInstanceOf(Map);
     expect(captures[0]?.context.systemPrompt).toEqual(["test system prompt"]);

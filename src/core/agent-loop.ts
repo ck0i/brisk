@@ -318,6 +318,7 @@ export class AgentLoop {
     let providerReplay: ProviderReplay | undefined;
     const providerToolResults = new Map<string, ToolResultMessage>();
     let started = false;
+    let sawResponseDelta = false;
     let ended = false;
     let upstreamIdentity:
       | {
@@ -360,28 +361,39 @@ export class AgentLoop {
 
       switch (event.type) {
         case "response_start":
-          if (started) throw invalidResponse("Provider emitted response_start more than once");
-          started = true;
+          // Some provider retry wrappers leak a second synthetic start before the
+          // first semantic event. Treat that lifecycle marker as idempotent; a
+          // restart after content is still a malformed response.
+          if (started) {
+            if (sawResponseDelta) {
+              throw invalidResponse("Provider emitted response_start after response content");
+            }
+          } else {
+            started = true;
+            this.publish(event);
+          }
           upstreamIdentity = {
             ...(event.provider === undefined ? {} : { provider: event.provider }),
             ...(event.api === undefined ? {} : { api: event.api }),
             ...(event.model === undefined ? {} : { model: event.model }),
             ...(event.timestamp === undefined ? {} : { timestamp: event.timestamp }),
           };
-          this.publish(event);
           break;
         case "text_delta":
           markDelta();
+          sawResponseDelta = true;
           content += event.delta;
           this.publish(event);
           break;
         case "thinking_delta":
           markDelta();
+          sawResponseDelta = true;
           thinking += event.delta;
           this.publish(event);
           break;
         case "tool_call_start":
           markDelta();
+          sawResponseDelta = true;
           if (calls.has(event.index)) {
             throw invalidResponse(`Duplicate tool call index ${event.index}`);
           }
@@ -396,6 +408,7 @@ export class AgentLoop {
           break;
         case "tool_call_delta": {
           markDelta();
+          sawResponseDelta = true;
           const call = calls.get(event.index);
           if (!call) throw invalidResponse(`Tool call delta has unknown index ${event.index}`);
           if (call.ended)
@@ -406,6 +419,7 @@ export class AgentLoop {
         }
         case "tool_call_end": {
           markDelta();
+          sawResponseDelta = true;
           const call = calls.get(event.index);
           if (!call) throw invalidResponse(`Tool call end has unknown index ${event.index}`);
           if (call.ended) throw invalidResponse(`Duplicate tool call end for index ${event.index}`);

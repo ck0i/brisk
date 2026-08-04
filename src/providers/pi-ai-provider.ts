@@ -58,6 +58,8 @@ export interface PiAiProviderOptions {
   readonly cacheRetention?: CacheRetention;
   readonly stream?: PiStreamFunction;
   readonly preconnect?: (url: string) => void;
+  readonly streamFirstEventTimeoutMs?: number;
+  readonly streamIdleTimeoutMs?: number;
 }
 
 /** Brisk Provider adapter for the standalone pi-ai runtime. */
@@ -70,6 +72,8 @@ export class PiAiProvider implements Provider {
   private readonly providerSessionState = new Map<string, ProviderSessionState>();
   private readonly streamUpstream: PiStreamFunction;
   private readonly preconnect: (url: string) => void;
+  private readonly streamFirstEventTimeoutMs: number | undefined;
+  private readonly streamIdleTimeoutMs: number | undefined;
 
   constructor(options: PiAiProviderOptions) {
     this.currentModel = options.model;
@@ -81,6 +85,8 @@ export class PiAiProvider implements Provider {
       options.stream ??
       ((model, context, streamOptions) => streamSimple(model, context, streamOptions));
     this.preconnect = options.preconnect ?? ((url) => fetch.preconnect(url));
+    this.streamFirstEventTimeoutMs = options.streamFirstEventTimeoutMs;
+    this.streamIdleTimeoutMs = options.streamIdleTimeoutMs;
     this.preconnectBestEffort(this.currentModel);
   }
 
@@ -155,6 +161,12 @@ export class PiAiProvider implements Provider {
               },
             }),
         ...(request.maxOutputTokens === undefined ? {} : { maxTokens: request.maxOutputTokens }),
+        ...(this.streamFirstEventTimeoutMs === undefined
+          ? {}
+          : { streamFirstEventTimeoutMs: this.streamFirstEventTimeoutMs }),
+        ...(this.streamIdleTimeoutMs === undefined
+          ? {}
+          : { streamIdleTimeoutMs: this.streamIdleTimeoutMs }),
       };
       const upstream = this.streamUpstream(model, context, options);
       for await (const event of upstream) {

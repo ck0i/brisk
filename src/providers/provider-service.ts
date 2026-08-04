@@ -44,6 +44,10 @@ export interface IsolatedProviderSelection extends ModelSelection {
 
 export type ProviderServiceListener = (selection: ModelSelection | undefined) => void;
 
+// Cursor's synthetic start event is not semantic progress. Fail a stalled child
+// attempt promptly so AgentLoop can retry instead of waiting for Pi's five-minute default.
+const CURSOR_CHILD_STREAM_TIMEOUT_MS = 90_000;
+
 /** Combines upstream auth resolution with per-provider custom endpoint configuration. */
 export class ConfigCredentialResolver implements CredentialResolver {
   private readonly customProviders: Readonly<Record<string, CustomProviderConfig>>;
@@ -228,6 +232,12 @@ export class ProviderService {
         sessionId,
         cacheRetention: this.cacheRetention,
         ...(reasoning === undefined ? {} : { reasoning }),
+        ...(selected.upstream.api === "cursor-agent"
+          ? {
+              streamFirstEventTimeoutMs: CURSOR_CHILD_STREAM_TIMEOUT_MS,
+              streamIdleTimeoutMs: CURSOR_CHILD_STREAM_TIMEOUT_MS,
+            }
+          : {}),
       }),
       modelSpecifier: resolvedSpecifier,
       effort: resolvedEffort,

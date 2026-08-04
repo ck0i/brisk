@@ -5,6 +5,7 @@ import { AgentLoop } from "../../src/core/agent-loop.ts";
 import type { AgentEvent, NormalizedProviderError } from "../../src/core/events.ts";
 import type { JsonValue } from "../../src/core/messages.ts";
 import { FakeProvider } from "../../src/providers/fake-provider.ts";
+import type { Provider } from "../../src/providers/types.ts";
 import { ToolRegistry } from "../../src/tools/registry.ts";
 
 const valueSchema = {
@@ -242,6 +243,30 @@ describe("AgentLoop streaming and tools", () => {
 });
 
 describe("AgentLoop failures and retries", () => {
+  test("accepts duplicate synthetic starts before provider content", async () => {
+    let requests = 0;
+    const provider: Provider = {
+      async *stream() {
+        requests += 1;
+        yield { type: "response_start" as const, provider: "cursor", model: "composer-2.5" };
+        yield { type: "response_start" as const, provider: "cursor", model: "composer-2.5" };
+        yield { type: "text_delta" as const, delta: "recovered" };
+        yield { type: "response_end" as const, stopReason: "stop" as const };
+      },
+    };
+    const loop = new AgentLoop({ provider, model: "cursor/composer-2.5" });
+    const starts: AgentEvent[] = [];
+    loop.subscribe((event) => {
+      if (event.type === "response_start") starts.push(event);
+    });
+
+    await loop.submit("continue");
+
+    expect(requests).toBe(1);
+    expect(starts).toHaveLength(1);
+    expect(loop.messages.at(-1)).toMatchObject({ role: "assistant", content: "recovered" });
+  });
+
   test("retries bounded retryable failures before deltas", async () => {
     const provider = new FakeProvider([
       { error: { kind: "network", message: "one", retryAfter: 1 } },

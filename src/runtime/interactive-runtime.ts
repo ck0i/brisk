@@ -14,7 +14,7 @@ import {
 } from "../context/index.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
 import { discoverAgentsInstructions } from "../core/agents-instructions.ts";
-import { buildWorkspacePrompt } from "../core/system-prompt.ts";
+import { buildDefaultSubtaskModelPrompt, buildWorkspacePrompt } from "../core/system-prompt.ts";
 import type { JsonValue, Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
 import { redactedErrorMessage } from "../providers/secret-redaction.ts";
@@ -68,6 +68,7 @@ export class InteractiveRuntime {
   private contextManager: ContextManager | undefined;
   private compactionController: AbortController | undefined;
   private agentInstructionPrompts: readonly string[] = [];
+  private defaultSubtaskModel: string | undefined;
   private tools = new ToolRegistry();
   private codingServices: CodingToolServices | undefined;
   private subagents: RuntimeSubagents | undefined;
@@ -250,6 +251,15 @@ export class InteractiveRuntime {
     await this.sessionRuntime?.close();
     this.providerService?.close();
     await cleanupToolProcesses();
+  }
+
+  private dynamicAgentSystemPrompt(): readonly string[] {
+    return [
+      ...(this.defaultSubtaskModel === undefined
+        ? []
+        : [buildDefaultSubtaskModelPrompt(this.defaultSubtaskModel)]),
+      ...(this.goalMode?.dynamicSystemPrompt() ?? []),
+    ];
   }
 
   private async initializeAgentInstructions(): Promise<void> {
@@ -547,6 +557,8 @@ export class InteractiveRuntime {
       contextWindow: 64_000,
       supportsImages: false,
     });
+    const defaultSubtaskModel = this.resolveDefaultSubtaskModel("fake/brisk-demo");
+    this.defaultSubtaskModel = defaultSubtaskModel;
     const loop = new AgentLoop({
       provider,
       tools: this.tools,
@@ -555,7 +567,7 @@ export class InteractiveRuntime {
       initialUsage: session.usage,
       contextLifecycle: contextManager,
       additionalSystemPrompt: this.agentInstructionPrompts,
-      dynamicSystemPrompt: () => this.goalMode?.dynamicSystemPrompt() ?? [],
+      dynamicSystemPrompt: () => this.dynamicAgentSystemPrompt(),
       contextFilter: (messages) => this.goalMode?.filterContext(messages) ?? messages,
       stopWhen: () => this.goalMode?.consumeStopRequested() ?? false,
     });
@@ -564,7 +576,7 @@ export class InteractiveRuntime {
       await session.recordModelChange("fake", "brisk-demo");
     }
     this.store.update({ providerModel: "fake/brisk-demo", effort: "off", status: "ready" });
-    await this.initializeSubagents(this.resolveDefaultSubtaskModel("fake/brisk-demo"));
+    await this.initializeSubagents(defaultSubtaskModel);
   }
 
   private async activateSelection(selection: ModelSelection): Promise<void> {
@@ -579,6 +591,8 @@ export class InteractiveRuntime {
     const contextModel = contextModelForSelection(selection);
     const contextManager = this.contextManager ?? this.createContextManager(contextModel);
     contextManager.setModel(contextModel);
+    const defaultSubtaskModel = this.resolveDefaultSubtaskModel(selectedName);
+    this.defaultSubtaskModel = defaultSubtaskModel;
     if (!this.agentLoop) {
       this.installAgentLoop(
         new AgentLoop({
@@ -589,7 +603,7 @@ export class InteractiveRuntime {
           initialUsage: session.usage,
           contextLifecycle: contextManager,
           additionalSystemPrompt: this.agentInstructionPrompts,
-          dynamicSystemPrompt: () => this.goalMode?.dynamicSystemPrompt() ?? [],
+          dynamicSystemPrompt: () => this.dynamicAgentSystemPrompt(),
           contextFilter: (messages) => this.goalMode?.filterContext(messages) ?? messages,
           stopWhen: () => this.goalMode?.consumeStopRequested() ?? false,
         }),
@@ -607,7 +621,6 @@ export class InteractiveRuntime {
       contextWindow: selection.record.contextWindow ?? undefined,
       status: this.agentLoop?.active === true ? "model updated · next request" : "ready",
     });
-    const defaultSubtaskModel = this.resolveDefaultSubtaskModel(selectedName);
     await this.initializeSubagents(defaultSubtaskModel);
     this.subagents?.setDefaultModel(defaultSubtaskModel);
     this.subagents?.setDefaultEffort(this.configManager.current.subtaskEffort);
@@ -797,6 +810,7 @@ export class InteractiveRuntime {
     this.controller?.dispose();
     this.controller = undefined;
     this.agentLoop = undefined;
+    this.defaultSubtaskModel = undefined;
     this.contextManager = undefined;
     await this.sessionRuntime?.detach();
     await cleanupToolProcesses();
@@ -1225,6 +1239,17 @@ export class InteractiveRuntime {
     await writeConfigValue(this.paths.globalConfigPath, path, value);
     await this.configManager.reload();
     this.applyConfigToUi();
+    if (path.length === 1 && path[0] === "defaultSubtaskModel") {
+      this.refreshDefaultSubtaskModel();
+    }
+  }
+
+  private refreshDefaultSubtaskModel(): void {
+    const parentModel = this.agentLoop?.modelId;
+    if (!parentModel) return;
+    const defaultSubtaskModel = this.resolveDefaultSubtaskModel(parentModel);
+    this.defaultSubtaskModel = defaultSubtaskModel;
+    this.subagents?.setDefaultModel(defaultSubtaskModel);
   }
 
   private async compactContext(): Promise<void> {

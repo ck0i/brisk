@@ -31,7 +31,7 @@ export const taskInputSchema: JsonSchema = {
       type: "string",
       minLength: 1,
       description:
-        "Optional per-task provider/model override. If the user did not explicitly specify a model for this subtask, omit this field entirely so Brisk uses the user's configured default subtask model. Never copy or infer the active model. Bare model names are ignored as an omitted override.",
+        "Optional per-task provider/model override. If the user did not explicitly specify a model for this subtask, omit this field entirely so Brisk uses the user's configured default subtask model resolved for this session and stated in the system instructions. Never copy or infer the active model. Bare model names are ignored as an omitted override.",
     },
     maxOutputTokens: { type: "integer", minimum: 1 },
   },

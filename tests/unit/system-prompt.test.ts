@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   BRISK_SYSTEM_PROMPT,
   ROOT_AGENT_SYSTEM_PROMPT,
+  buildDefaultSubtaskModelPrompt,
   buildSystemPrompt,
   buildWorkspacePrompt,
 } from "../../src/core/system-prompt.ts";
@@ -25,6 +26,15 @@ describe("Brisk system prompt", () => {
     expect(prompt).toContain("Relative tool paths resolve from that root");
     expect(prompt).toContain("absolute paths");
     expect(prompt).toContain("anywhere else on the user's computer");
+  });
+
+  test("publishes the effective default subagent model for omitted task overrides", () => {
+    const prompt = buildDefaultSubtaskModelPrompt("provider/child-model");
+
+    expect(prompt).toContain("Effective default subagent model");
+    expect(prompt).toContain("provider/child-model");
+    expect(prompt).toContain("omit task.model entirely");
+    expect(prompt).toContain("copy the active root model");
   });
 
   test("renders the exact current tool catalog with built-in and extension guidance", () => {

@@ -47,5 +47,5 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 - Automated OAuth coverage uses fake stores. Real provider grants, account entitlements, refresh behavior, and manual callback paths require the documented manual verification before release.
 - Cross-compilation is not cross-platform runtime verification. All five artifacts, manifests, checksums, and binary formats are generated locally, but only the Linux x64 artifact is executed in automated release verification. The compiled Linux executables target glibc; both glibc and musl OpenTUI sidecars are packaged.
 
-[Unreleased]: https://github.com/nickt/brisk/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/nickt/brisk/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ck0i/brisk/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ck0i/brisk/releases/tag/v0.1.0

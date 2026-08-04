@@ -1,4 +1,4 @@
-export const RELEASE_REPOSITORY = "nickt/brisk";
+export const RELEASE_REPOSITORY = "ck0i/brisk";
 export const RELEASE_API_URL = `https://api.github.com/repos/${RELEASE_REPOSITORY}/releases/latest`;
 
 const VERSION_PATTERN = /^(?:v)?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;

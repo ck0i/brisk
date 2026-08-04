@@ -5,16 +5,18 @@ import {
   checkForUpdate,
   compareVersions,
   fetchLatestRelease,
+  RELEASE_API_URL,
+  RELEASE_REPOSITORY,
   type ReleaseFetch,
 } from "../../src/update/releases.ts";
 
 function releaseResponse(
   version: string,
-  assetUrl = "https://github.com/nickt/brisk/releases/download/v0.1.2/brisk-linux-x64.tar.gz",
+  assetUrl = "https://github.com/ck0i/brisk/releases/download/v0.1.2/brisk-linux-x64.tar.gz",
 ): Response {
   return Response.json({
     tag_name: `v${version}`,
-    html_url: `https://github.com/nickt/brisk/releases/tag/v${version}`,
+    html_url: `https://github.com/ck0i/brisk/releases/tag/v${version}`,
     draft: false,
     prerelease: false,
     assets: [
@@ -32,6 +34,10 @@ function returning(response: Response): ReleaseFetch {
 }
 
 describe("Brisk releases", () => {
+  test("checks the repository that publishes Brisk releases", () => {
+    expect(RELEASE_REPOSITORY).toBe("ck0i/brisk");
+    expect(RELEASE_API_URL).toBe("https://api.github.com/repos/ck0i/brisk/releases/latest");
+  });
   test("compares stable versions without number precision loss", () => {
     expect(compareVersions("0.1.2", "0.1.1")).toBe(1);
     expect(compareVersions("v2.0.0", "1.999.999")).toBe(1);
@@ -48,7 +54,7 @@ describe("Brisk releases", () => {
     expect(update).toMatchObject({ version: "0.1.2", tagName: "v0.1.2" });
     expect(update?.assets[0]).toEqual({
       name: "brisk-linux-x64.tar.gz",
-      url: "https://github.com/nickt/brisk/releases/download/v0.1.2/brisk-linux-x64.tar.gz",
+      url: "https://github.com/ck0i/brisk/releases/download/v0.1.2/brisk-linux-x64.tar.gz",
       size: 123,
     });
 

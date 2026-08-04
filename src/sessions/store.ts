@@ -99,7 +99,8 @@ const defaultStoreIO: SessionStoreIO = {
     await chmod(path, 0o600);
   },
   async syncFile(path) {
-    const handle = await openFile(path, "r");
+    // Windows FlushFileBuffers requires a write-capable handle; r+ keeps must-exist semantics.
+    const handle = await openFile(path, "r+");
     try {
       await handle.sync();
     } finally {

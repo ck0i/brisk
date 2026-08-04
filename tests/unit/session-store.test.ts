@@ -143,6 +143,26 @@ describe("session store", () => {
     }
   });
 
+  test("flushes a transcript through the default filesystem IO", async () => {
+    const layout = await createLayout();
+    try {
+      const store = testStore(layout.sessionsDir, "default-flush");
+      const metadata = await store.create(createOptions(layout, "default-flush"));
+      await store.append(metadata.id, {
+        type: "user_message",
+        message: { role: "user", content: "durable" },
+      });
+
+      await store.close();
+
+      const reader = testStore(layout.sessionsDir, "default-flush-reader");
+      const loaded = await reader.open(metadata.id);
+      expect(loaded.messages).toEqual([{ role: "user", content: "durable" }]);
+    } finally {
+      await rm(layout.root, { recursive: true, force: true });
+    }
+  });
+
   test("reports an interrupted streaming assistant without inventing a finalized message", async () => {
     const layout = await createLayout();
     try {

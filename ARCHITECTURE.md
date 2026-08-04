@@ -4,9 +4,10 @@ Bun/TypeScript app with a thin `src/main.ts` entrypoint and an owned agent runti
 
 ## Startup
 
-1. `main.ts` — version/help and lazy command dispatch.
+1. `main.ts` — version/help/update and lazy command dispatch.
 2. `app.tsx` — mount OpenTUI **before** config, sessions, providers, auth, extensions, or network.
-3. `InteractiveRuntime` — workspace, config, `AGENTS.md`, session, tools, provider/model, `AgentLoop`, context, subagents, extensions.
+3. Post-first-frame initialization starts the non-blocking release check and `InteractiveRuntime` setup.
+4. `InteractiveRuntime` — workspace, config, `AGENTS.md`, session, tools, provider/model, `AgentLoop`, context, subagents, extensions.
 
 The UI owns terminal I/O and shutdown; runtime coordinates services.
 
@@ -25,6 +26,7 @@ The UI owns terminal I/O and shutdown; runtime coordinates services.
 | Subagents  | `src/subagents/`         | Checkpoints, child sessions, patch overlay             |
 | Extensions | `src/extensions/`        | Discovery, contributions, reload                       |
 | Config     | `src/config/`            | JSONC layers, schema, paths                            |
+| Updates    | `src/update/`            | Validated GitHub releases and semantic version checks  |
 
 ## Agent loop
 
@@ -58,4 +60,4 @@ Config rejects inline secrets; workspace paths are canonicalized; writes are pre
 
 ## Packaging
 
-npm bundle: `scripts/build-package.ts` → `dist/npm/brisk.js`. Standalone: `scripts/build.ts` per target with bundled assets and checksums. Maintainer steps: [docs/dev/releasing.md](docs/dev/releasing.md).
+npm bundle: `scripts/build-package.ts` → `dist/npm/brisk.js`. Standalone: `scripts/build.ts` → `dist/brisk-<platform>-<arch>` with bundled assets and checksums. Maintainer automation: [docs/dev/releasing.md](docs/dev/releasing.md).

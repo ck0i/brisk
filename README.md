@@ -19,13 +19,19 @@ brisk version
 
 Use `--trust` so postinstall can add Bun's global bin directory to your `PATH`. Node is not supported.
 
-**Standalone** — use a release directory as-is (`brisk`/`brisk.exe`, `assets/`, `pi_natives`). Verify `SHA256SUMS` when provided.
+**Standalone** — download the release for your platform (`brisk-linux-x64`, `brisk-linux-arm64`, `brisk-darwin-x64`, `brisk-darwin-arm64`, or `brisk-windows-x64`) and use its directory as-is. Verify `brisk-release-SHA256SUMS` before extracting when installing manually.
 
 **Source:**
 
 ```sh
 bun install --frozen-lockfile
 bun run dev
+```
+
+Brisk checks for a newer release after the TUI's first frame. When notified, update either a global package installation or a complete standalone release directory with:
+
+```sh
+brisk update
 ```
 
 User data and config paths: [Configuration](docs/CONFIGURATION.md).
@@ -45,7 +51,7 @@ The TUI mounts before configuration, sessions, providers, or network I/O. Set `d
 ```text
 brisk [directory] [--model M] [--permission-mode safe|write|yolo] [--continue | --session ID] [--fake-provider]
 brisk auth <login|logout|status> [provider]
-brisk models [--refresh]   brisk sessions   brisk doctor   brisk bench   brisk version
+brisk models [--refresh]   brisk sessions   brisk doctor   brisk bench   brisk update   brisk version
 ```
 
 Slash commands, keybindings, and permission modes: [Usage](docs/USAGE.md). Providers and OAuth: [Providers](docs/PROVIDERS.md).

@@ -1,0 +1,146 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: brisk-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require maintainer permission
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              username: context.actor,
+            });
+            const allowed = new Set(["admin", "maintain", "write"]);
+            if (!allowed.has(data.permission)) {
+              core.setFailed(`Release actor ${context.actor} has ${data.permission} permission, not maintainer permission.`);
+            }
+
+      - name: Check out the pushed commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Assign this push a release version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          VERSION="$(bun -e '
+            const document = await Bun.file("package.json").json();
+            const match = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.exec(document.version);
+            if (!match) throw new Error(`package.json has an invalid release base version: ${document.version}`);
+            const patch = Number(match[3]) + Number(process.env.RUN_NUMBER);
+            if (!Number.isSafeInteger(patch)) throw new Error("generated release patch is not safe");
+            document.version = `${match[1]}.${match[2]}.${patch}`;
+            await Bun.write("package.json", `${JSON.stringify(document, null, 2)}\n`);
+            process.stdout.write(document.version);
+          ')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing Brisk $VERSION"
+
+      - name: Verify release inputs
+        run: bun run release:check
+
+      - name: Build all standalone targets
+        run: bun run build:all
+
+      - name: Package release assets
+        run: |
+          mkdir -p dist/release-assets
+          for target in \
+            brisk-linux-x64 \
+            brisk-linux-arm64 \
+            brisk-darwin-x64 \
+            brisk-darwin-arm64 \
+            brisk-windows-x64
+          do
+            tar -C dist -czf "dist/release-assets/${target}.tar.gz" "$target"
+          done
+          (
+            cd dist/release-assets
+            sha256sum brisk-*.tar.gz > brisk-release-SHA256SUMS
+          )
+
+      - name: Publish npm package
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "NPM_TOKEN is required to publish brisk-ai $VERSION." >&2
+            exit 1
+          fi
+          if curl --silent --fail --location "https://registry.npmjs.org/brisk-ai/$VERSION" > /dev/null; then
+            if [ "$GITHUB_RUN_ATTEMPT" = "1" ]; then
+              echo "brisk-ai $VERSION already exists before this release attempt." >&2
+              exit 1
+            fi
+            echo "brisk-ai $VERSION was published by an earlier attempt; keeping it."
+          else
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$RUNNER_TEMP/brisk.npmrc"
+            NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/brisk.npmrc" bun publish --access public
+          fi
+
+      - name: Tag the generated release version
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            git fetch --force origin "refs/tags/$TAG:refs/tags/$TAG"
+            RELEASE_COMMIT="$(git rev-list -n 1 "$TAG")"
+            RELEASE_PARENT="$(git rev-parse "$RELEASE_COMMIT^")"
+            if [ "$RELEASE_PARENT" != "$GITHUB_SHA" ]; then
+              echo "$TAG already belongs to another source commit." >&2
+              exit 1
+            fi
+            echo "$TAG is already present from an earlier attempt."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add package.json
+            git commit -m "chore: release Brisk $VERSION"
+            git tag -a "$TAG" -m "Brisk $VERSION"
+            git push origin "$TAG"
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/release-assets/* --clobber
+          else
+            gh release create "$TAG" \
+              dist/release-assets/* \
+              --verify-tag \
+              --title "Brisk $VERSION" \
+              --generate-notes
+          fi

@@ -20,6 +20,7 @@ export type CliCommand =
   | { readonly name: "sessions"; readonly json: boolean }
   | { readonly name: "doctor"; readonly json: boolean }
   | { readonly name: "bench"; readonly json: boolean }
+  | { readonly name: "update" }
   | { readonly name: "version" }
   | { readonly name: "help" };
 
@@ -47,6 +48,10 @@ export function parseCliArgs(
   if (first === "sessions") return parseListCommand("sessions", argv.slice(1));
   if (first === "doctor") return parseListCommand("doctor", argv.slice(1));
   if (first === "bench") return parseListCommand("bench", argv.slice(1));
+  if (first === "update") {
+    ensureNoTrailing(argv, 1, "update");
+    return { name: "update" };
+  }
 
   let directory = cwd;
   let directorySeen = false;

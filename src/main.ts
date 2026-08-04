@@ -1,8 +1,7 @@
 #!/usr/bin/env bun
 
-export {};
+import { VERSION } from "./version.ts";
 
-const VERSION = "0.1.0";
 const startedAt = performance.now();
 
 interface InteractiveController {
@@ -16,7 +15,7 @@ interface InteractiveController {
 
 function printHelp(): void {
   process.stdout.write(
-    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor [--json]\n  brisk bench [--json]\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
+    `Brisk ${VERSION}\n\nUsage:\n  brisk [directory]\n  brisk --continue\n  brisk --session <id>\n  brisk auth <login|logout|status> [provider]\n  brisk models\n  brisk sessions\n  brisk doctor [--json]\n  brisk bench [--json]\n  brisk update\n  brisk version\n\nOptions:\n  --model <provider/model>\n  --permission-mode <safe|write|yolo>\n  --fake-provider                 deterministic development provider\n  -h, --help\n`,
   );
 }
 
@@ -32,6 +31,11 @@ async function main(): Promise<void> {
   }
   if (command.name === "help") {
     printHelp();
+    return;
+  }
+  if (command.name === "update") {
+    const { runUpdateCommand } = await import("./cli/update-command.ts");
+    await runUpdateCommand(VERSION);
     return;
   }
   if (command.name === "bench") {
@@ -84,8 +88,20 @@ async function main(): Promise<void> {
     startedAt,
     handlers: {
       async initialize(store) {
+        const updateNotification =
+          process.env.BRISK_DISABLE_UPDATE_CHECK === "1" || command.fakeProvider
+            ? Promise.resolve(undefined)
+            : import("./update/releases.ts")
+                .then(async ({ checkForUpdate }) => await checkForUpdate(VERSION))
+                .catch(() => undefined);
         const { InteractiveRuntime } = await import("./runtime/interactive-runtime.ts");
         controller = await InteractiveRuntime.initialize({ workspace, command }, store);
+        void updateNotification.then((release) => {
+          if (!release) return;
+          const notification = `Brisk ${release.version} is available (current: ${VERSION}). Run \`brisk update\` to install it.`;
+          const existing = store.snapshot.notice;
+          store.update({ notice: existing ? `${existing}\n\n${notification}` : notification });
+        });
       },
       async submit(value, store, tui) {
         if (!controller) {

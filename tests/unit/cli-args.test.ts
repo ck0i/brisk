@@ -58,6 +58,8 @@ describe("parseCliArgs", () => {
     });
     expect(parseCliArgs(["doctor", "--json"])).toEqual({ name: "doctor", json: true });
     expect(parseCliArgs(["bench"])).toEqual({ name: "bench", json: false });
+    expect(parseCliArgs(["update"])).toEqual({ name: "update" });
+    expect(() => parseCliArgs(["update", "now"])).toThrow("update does not accept arguments");
   });
 
   test("rejects malformed options instead of silently changing behavior", () => {

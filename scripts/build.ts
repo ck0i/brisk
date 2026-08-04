@@ -17,16 +17,18 @@ import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 const ROOT = resolve(import.meta.dir, "..");
 const DIST = join(ROOT, "dist");
 const SUPPORTED_TARGETS = [
-  "bun-linux-x64",
-  "bun-linux-arm64",
-  "bun-darwin-x64",
-  "bun-darwin-arm64",
-  "bun-windows-x64",
+  "brisk-linux-x64",
+  "brisk-linux-arm64",
+  "brisk-darwin-x64",
+  "brisk-darwin-arm64",
+  "brisk-windows-x64",
 ] as const;
 
 type SupportedTarget = (typeof SUPPORTED_TARGETS)[number];
 
 interface TargetDescriptor {
+  readonly bunTarget:
+    "bun-linux-x64" | "bun-linux-arm64" | "bun-darwin-x64" | "bun-darwin-arm64" | "bun-windows-x64";
   readonly platform: "linux" | "darwin" | "win32";
   readonly installOs: "linux" | "darwin" | "win32";
   readonly arch: "x64" | "arm64";
@@ -35,35 +37,40 @@ interface TargetDescriptor {
 }
 
 const TARGET_DESCRIPTORS: Readonly<Record<SupportedTarget, TargetDescriptor>> = {
-  "bun-linux-x64": {
+  "brisk-linux-x64": {
+    bunTarget: "bun-linux-x64",
     platform: "linux",
     installOs: "linux",
     arch: "x64",
     executable: "brisk",
     openTuiLibrary: "libopentui.so",
   },
-  "bun-linux-arm64": {
+  "brisk-linux-arm64": {
+    bunTarget: "bun-linux-arm64",
     platform: "linux",
     installOs: "linux",
     arch: "arm64",
     executable: "brisk",
     openTuiLibrary: "libopentui.so",
   },
-  "bun-darwin-x64": {
+  "brisk-darwin-x64": {
+    bunTarget: "bun-darwin-x64",
     platform: "darwin",
     installOs: "darwin",
     arch: "x64",
     executable: "brisk",
     openTuiLibrary: "libopentui.dylib",
   },
-  "bun-darwin-arm64": {
+  "brisk-darwin-arm64": {
+    bunTarget: "bun-darwin-arm64",
     platform: "darwin",
     installOs: "darwin",
     arch: "arm64",
     executable: "brisk",
     openTuiLibrary: "libopentui.dylib",
   },
-  "bun-windows-x64": {
+  "brisk-windows-x64": {
+    bunTarget: "bun-windows-x64",
     platform: "win32",
     installOs: "win32",
     arch: "x64",
@@ -198,7 +205,7 @@ function isSupportedTarget(value: string): value is SupportedTarget {
 }
 
 function hostTarget(): SupportedTarget {
-  const candidate = `bun-${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
+  const candidate = `brisk-${process.platform === "win32" ? "windows" : process.platform}-${process.arch}`;
   if (isSupportedTarget(candidate)) return candidate;
   throw new Error(
     `Unsupported host ${process.platform}-${process.arch}. Use an explicit target from: ${SUPPORTED_TARGETS.join(", ")}`,
@@ -215,7 +222,7 @@ async function readPackageMetadata(): Promise<PackageMetadata> {
 
 async function buildTarget(metadata: PackageMetadata, target: SupportedTarget): Promise<string> {
   const descriptor = TARGET_DESCRIPTORS[target];
-  const releaseDirectory = join(DIST, `${metadata.name}-${metadata.version}-${target}`);
+  const releaseDirectory = join(DIST, target);
   await rm(releaseDirectory, { recursive: true, force: true });
   await mkdir(releaseDirectory, { recursive: true });
 
@@ -382,7 +389,7 @@ async function compileExecutable(
         "--compile",
         "--no-compile-autoload-bunfig",
         "--no-compile-autoload-dotenv",
-        `--target=${target}`,
+        `--target=${TARGET_DESCRIPTORS[target].bunTarget}`,
         `--outfile=${executablePath}`,
         entryPath,
       ],

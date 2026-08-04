@@ -7,6 +7,8 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 ### Added
 
 - Cross-platform global-install setup that idempotently persists the package manager's binary directory in Bash, Zsh, Fish, or the Windows user `PATH`.
+- Maintainer-gated GitHub Actions releases on every `main` push, with automatic npm publication, `brisk-*` standalone archives, release checksums, and generated tags.
+- Post-first-frame update notifications and `brisk update` support for global package installs and complete standalone release directories.
 
 ### Fixed
 

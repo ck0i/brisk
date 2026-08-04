@@ -4,6 +4,7 @@ import {
   BRISK_SYSTEM_PROMPT,
   ROOT_AGENT_SYSTEM_PROMPT,
   buildSystemPrompt,
+  buildWorkspacePrompt,
 } from "../../src/core/system-prompt.ts";
 import type { ProviderToolSchema } from "../../src/providers/types.ts";
 
@@ -16,6 +17,13 @@ describe("Brisk system prompt", () => {
     expect(BRISK_SYSTEM_PROMPT).toContain("remain neutral");
     expect(BRISK_SYSTEM_PROMPT).toContain("Do not moralize");
     expect(BRISK_SYSTEM_PROMPT).toContain("Never claim to have read, changed, executed");
+  });
+
+  test("pins tool paths to the active workspace", () => {
+    const prompt = buildWorkspacePrompt('/home/user/project "quoted"');
+    expect(prompt).toContain('"/home/user/project \\"quoted\\""');
+    expect(prompt).toContain("Prefer paths relative to that root");
+    expect(prompt).toContain("Never reuse or invent a workspace path");
   });
 
   test("renders the exact current tool catalog with built-in and extension guidance", () => {

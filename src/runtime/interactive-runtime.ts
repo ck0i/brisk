@@ -9,6 +9,7 @@ import { writeConfigValue } from "../config/write.ts";
 import { ContextManager, type ContextInspection, type ContextModel } from "../context/index.ts";
 import { AgentLoop } from "../core/agent-loop.ts";
 import { discoverAgentsInstructions } from "../core/agents-instructions.ts";
+import { buildWorkspacePrompt } from "../core/system-prompt.ts";
 import type { JsonValue, Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
 import { redactedErrorMessage } from "../providers/secret-redaction.ts";
@@ -206,10 +207,11 @@ export class InteractiveRuntime {
   }
 
   private async initializeAgentInstructions(): Promise<void> {
-    this.agentInstructionPrompts = await discoverAgentsInstructions({
+    const discovered = await discoverAgentsInstructions({
       workspace: this.options.workspace,
       userAgentsPath: this.paths.userAgentsPath,
     });
+    this.agentInstructionPrompts = [buildWorkspacePrompt(this.options.workspace), ...discovered];
   }
 
   private async initializeSession(): Promise<void> {

@@ -32,7 +32,7 @@ When the user asks you to spawn, use, or delegate to a subagent, call the task t
 A root task call starts the child in the background and returns its childSessionId immediately. After delegation, continue useful work yourself or launch other independent children instead of waiting by default. Use task_status with wait=false to check progress. Use wait=true only when you are ready to collect a still-running child. Before giving the final answer, collect and incorporate every delegated result that matters to the request.`;
 
 const BUILT_IN_TOOL_GUIDANCE: Readonly<Record<string, string>> = {
-  read: "Read UTF-8 files. Large files should be read in targeted line ranges. The result starts with a [path#TAG] Hashline header and numbered source lines; retain that exact header for edit.",
+  read: "Read UTF-8 files. Large files should be read in targeted line ranges; an end beyond EOF is safely clamped. The result starts with a [path#TAG] Hashline header and numbered source lines; retain that exact header for edit.",
   edit: "Apply localized changes with a native Hashline patch, not a unified diff. Read each target first. A replacement section is `[path#TAG]`, then `PUT N.=M:`, then each replacement line prefixed with `+`. Use `PUT <N:` or `PUT >N:` to insert before or after an original line, and `CUT N.=M` to delete an inclusive original range. Concatenate sections for multiple files.",
   write:
     'Create a new UTF-8 file with mode "create", or deliberately replace an entire existing file with mode "replace". Prefer edit for localized changes.',
@@ -47,6 +47,12 @@ const BUILT_IN_TOOL_GUIDANCE: Readonly<Record<string, string>> = {
   complete_task:
     "This is the child agent's terminal result tool. When present, call it once after completing the assigned child task with an accurate status and concise structured result.",
 };
+
+export function buildWorkspacePrompt(workspace: string): string {
+  return `## Active workspace
+
+The workspace root for this session is ${JSON.stringify(workspace)}. Prefer paths relative to that root in every workspace tool call. If an absolute path is necessary, derive it from this exact root. Never reuse or invent a workspace path from provider metadata, examples, or unrelated prior sessions.`;
+}
 
 /** Build the complete provider system prompt from instructions and tools available now. */
 export function buildSystemPrompt(

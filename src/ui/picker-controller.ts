@@ -5,6 +5,8 @@ export interface PickerRequest {
   readonly title: string;
   readonly options: readonly UiPickerOption[];
   readonly selectedId?: string;
+  readonly searchable?: boolean;
+  readonly searchPlaceholder?: string;
 }
 
 interface PendingPicker {
@@ -84,6 +86,15 @@ export class UiPickerController {
       title: item.request.title,
       options: item.request.options.map((option) => ({ ...option })),
       selectedIndex,
+      ...(item.request.searchable
+        ? {
+            searchable: true,
+            query: "",
+            ...(item.request.searchPlaceholder === undefined
+              ? {}
+              : { searchPlaceholder: item.request.searchPlaceholder }),
+          }
+        : {}),
     });
   }
 

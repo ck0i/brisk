@@ -1,3 +1,5 @@
+import { rankPickerOptions } from "./picker-search.ts";
+
 export type UiMessageRole = "user" | "assistant" | "system";
 export type UiTheme = "default" | "high-contrast";
 
@@ -93,6 +95,7 @@ export interface UiPickerOption {
   id: string;
   label: string;
   description?: string;
+  searchText?: string;
   disabled?: boolean;
 }
 
@@ -101,6 +104,9 @@ export interface UiPickerPrompt {
   title: string;
   options: readonly UiPickerOption[];
   selectedIndex: number;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+  query?: string;
 }
 
 export interface UiTextInputPrompt {
@@ -491,21 +497,41 @@ export class UiStore {
   movePicker(delta: number): void {
     const picker = this.current.picker;
     if (!picker || picker.options.length === 0 || delta === 0) return;
-    let index = picker.selectedIndex;
-    for (let attempt = 0; attempt < picker.options.length; attempt += 1) {
-      index = (index + delta + picker.options.length) % picker.options.length;
-      if (!picker.options[index]?.disabled) break;
+    const rows = rankPickerOptions(picker.options, picker.searchable ? picker.query : undefined);
+    if (rows.length === 0) return;
+    let position = rows.findIndex((row) => row.index === picker.selectedIndex);
+    for (let attempt = 0; attempt < rows.length; attempt += 1) {
+      position = (position + delta + rows.length) % rows.length;
+      const row = rows[position];
+      if (!row || row.option.disabled) continue;
+      this.publish({
+        ...this.current,
+        picker: { ...picker, selectedIndex: row.index },
+      });
+      return;
     }
-    this.publish({ ...this.current, picker: { ...picker, selectedIndex: index } });
+  }
+
+  setPickerQuery(query: string): void {
+    const picker = this.current.picker;
+    if (!picker?.searchable || picker.query === query) return;
+    const nextPicker = { ...picker, query };
+    const selectedIndex =
+      rankPickerOptions(picker.options, query).find((row) => !row.option.disabled)?.index ?? -1;
+    this.publish({ ...this.current, picker: { ...nextPicker, selectedIndex } });
   }
 
   decidePicker(select: boolean): boolean {
     const picker = this.current.picker;
     const handler = this.pickerDecisionHandler;
     if (!picker || !handler) return false;
-    const option = select ? picker.options[picker.selectedIndex] : undefined;
-    if (option?.disabled) return false;
-    handler(picker.id, option?.id);
+    if (!select) {
+      handler(picker.id, undefined);
+      return true;
+    }
+    const option = picker.options[picker.selectedIndex];
+    if (!option || option.disabled) return false;
+    handler(picker.id, option.id);
     return true;
   }
 

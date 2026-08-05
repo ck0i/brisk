@@ -12,6 +12,7 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "so
 
 import { redactSecrets } from "../providers/secret-redaction.ts";
 import { diffSectionHeight, splitDiffPreview } from "./diff-presentation.ts";
+import { rankPickerOptions } from "./picker-search.ts";
 import { BUILT_IN_SLASH_COMMANDS, type SlashCommand } from "./slash-commands.ts";
 import type {
   UiAgentIndicator,
@@ -338,16 +339,27 @@ function ApprovalOverlay(props: {
   );
 }
 
-function PickerOverlay(props: { picker: UiPickerPrompt }) {
+function PickerOverlay(props: { picker: UiPickerPrompt; store: UiStore }) {
+  let input: InputRenderable | undefined;
+  const rankedOptions = createMemo(() =>
+    rankPickerOptions(
+      props.picker.options,
+      props.picker.searchable ? props.picker.query : undefined,
+    ),
+  );
   const visibleOptions = createMemo(() => {
-    const start = Math.max(
+    const options = rankedOptions();
+    const selectedPosition = Math.max(
       0,
-      Math.min(props.picker.selectedIndex - 5, props.picker.options.length - 12),
+      options.findIndex((row) => row.index === props.picker.selectedIndex),
     );
-    return props.picker.options.slice(start, start + 12).map((option, offset) => ({
-      option,
-      index: start + offset,
-    }));
+    const start = Math.max(0, Math.min(selectedPosition - 5, options.length - 12));
+    return options.slice(start, start + 12);
+  });
+
+  createEffect(() => {
+    if (!props.picker.searchable) return;
+    queueMicrotask(() => input?.focus());
   });
 
   return (
@@ -374,26 +386,58 @@ function PickerOverlay(props: { picker: UiPickerPrompt }) {
       >
         <text fg={COLORS.accent}>
           <strong>{props.picker.title}</strong>
+          {props.picker.searchable && props.picker.query
+            ? ` · ${rankedOptions().length} matches`
+            : ""}
         </text>
-        <For each={visibleOptions()}>
-          {(row) => (
-            <text
-              fg={
-                row.option.disabled
-                  ? COLORS.muted
-                  : row.index === props.picker.selectedIndex
-                    ? COLORS.success
-                    : COLORS.text
-              }
-            >
-              {row.index === props.picker.selectedIndex ? "› " : "  "}
-              {row.option.label}
-              {row.option.description ? ` · ${row.option.description}` : ""}
+        <Show when={props.picker.searchable}>
+          <box flexDirection="row" marginTop={1} height={1}>
+            <text fg={COLORS.success} width={2}>
+              ›
             </text>
-          )}
-        </For>
+            <input
+              ref={(node) => {
+                input = node;
+                queueMicrotask(() => node.focus());
+              }}
+              focused
+              flexGrow={1}
+              value={props.picker.query ?? ""}
+              placeholder={props.picker.searchPlaceholder ?? "Search…"}
+              placeholderColor={COLORS.muted}
+              textColor={COLORS.text}
+              backgroundColor={COLORS.surface}
+              focusedBackgroundColor={COLORS.surface}
+              focusedTextColor={COLORS.text}
+              onInput={(value) => props.store.setPickerQuery(value)}
+              onSubmit={() => props.store.decidePicker(true)}
+            />
+          </box>
+        </Show>
+        <Show
+          when={visibleOptions().length > 0}
+          fallback={<text fg={COLORS.muted}>No matching options</text>}
+        >
+          <For each={visibleOptions()}>
+            {(row) => (
+              <text
+                fg={
+                  row.option.disabled
+                    ? COLORS.muted
+                    : row.index === props.picker.selectedIndex
+                      ? COLORS.success
+                      : COLORS.text
+                }
+              >
+                {row.index === props.picker.selectedIndex ? "› " : "  "}
+                {row.option.label}
+                {row.option.description ? ` · ${row.option.description}` : ""}
+              </text>
+            )}
+          </For>
+        </Show>
         <text fg={COLORS.muted} marginTop={1}>
-          ↑/↓ or Ctrl+K/J · Enter select · Esc cancel
+          {`${props.picker.searchable ? "Type to filter · " : ""}↑/↓ or Ctrl+K/J · Enter select · Esc cancel`}
         </text>
       </box>
     </box>
@@ -1233,6 +1277,31 @@ export function Root(props: RootProps) {
       }
       return;
     }
+    if (state().approval) {
+      key.preventDefault();
+      key.stopPropagation();
+      if (key.ctrl || key.meta) return;
+      if (key.name === "a") decideApproval("approve_once");
+      else if (key.name === "s") decideApproval("approve_session");
+      else if (key.name === "d" || key.name === "escape") decideApproval("deny");
+      return;
+    }
+    const picker = state().picker;
+    if (picker) {
+      const movingUp = key.name === "up" || (key.ctrl && key.name === "k");
+      const movingDown = key.name === "down" || (key.ctrl && key.name === "j");
+      const selecting = key.name === "return";
+      const cancelling = key.name === "escape" || (key.ctrl && key.name === "c");
+      if (!picker.searchable || movingUp || movingDown || selecting || cancelling) {
+        key.preventDefault();
+        key.stopPropagation();
+      }
+      if (movingUp) props.store.movePicker(-1);
+      else if (movingDown) props.store.movePicker(1);
+      else if (selecting) props.store.decidePicker(true);
+      else if (cancelling) props.store.decidePicker(false);
+      return;
+    }
     if (!slashDismissed() && slashOptions().length > 0) {
       if (key.name === "up" || key.name === "down") {
         key.preventDefault();
@@ -1258,24 +1327,6 @@ export function Root(props: RootProps) {
         setSlashDismissed(true);
         return;
       }
-    }
-    if (state().approval) {
-      key.preventDefault();
-      key.stopPropagation();
-      if (key.ctrl || key.meta) return;
-      if (key.name === "a") decideApproval("approve_once");
-      else if (key.name === "s") decideApproval("approve_session");
-      else if (key.name === "d" || key.name === "escape") decideApproval("deny");
-      return;
-    }
-    if (state().picker) {
-      key.preventDefault();
-      key.stopPropagation();
-      if (key.name === "up" || (key.ctrl && key.name === "k")) props.store.movePicker(-1);
-      else if (key.name === "down" || (key.ctrl && key.name === "j")) props.store.movePicker(1);
-      else if (key.name === "return") props.store.decidePicker(true);
-      else if (key.name === "escape") props.store.decidePicker(false);
-      return;
     }
     if (state().btw) {
       if (key.name === "escape" || (key.ctrl && key.name === "c")) {
@@ -1557,7 +1608,9 @@ export function Root(props: RootProps) {
               </Show>
             }
           >
-            {(picker: () => UiPickerPrompt) => <PickerOverlay picker={picker()} />}
+            {(picker: () => UiPickerPrompt) => (
+              <PickerOverlay picker={picker()} store={props.store} />
+            )}
           </Show>
         }
       >

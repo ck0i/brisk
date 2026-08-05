@@ -39,7 +39,7 @@ Slash commands remain available while the main agent runs. Model and effort chan
 | `Esc`                      | Abort active work                                                              |
 | `Ctrl+C`, `Ctrl+Shift+C`   | Copy highlighted TUI text; Ctrl+C clears the composer when nothing is selected |
 | `Ctrl+D`                   | Exit                                                                           |
-| `Ctrl+P`                   | Model picker                                                                   |
+| `Ctrl+P`                   | Open the model picker; type to fuzzy-search provider and model names           |
 | `Ctrl+O`                   | Session picker                                                                 |
 | `A` / `S` / `D`            | Approve once / session / deny                                                  |
 

@@ -1103,11 +1103,14 @@ export class InteractiveRuntime {
     const selected = await this.pickerController.choose({
       title: field === "defaultSubtaskModel" ? "Default subtask model" : "Default model",
       selectedId: current ?? "inherit",
+      searchable: true,
+      searchPlaceholder: "Search models…",
       options: [
         { id: "inherit", label: "Automatic / inherited", description: inheritDescription },
         ...models.map((model) => ({
           id: `${model.provider}/${model.id}`,
           label: `${model.provider}/${model.id}`,
+          searchText: model.name,
           description:
             model.contextWindow === null
               ? model.api
@@ -1379,9 +1382,12 @@ export class InteractiveRuntime {
     }
     return await this.pickerController.choose({
       title: "Select provider/model",
+      searchable: true,
+      searchPlaceholder: "Search models…",
       options: models.map((model) => ({
         id: `${model.provider}/${model.id}`,
         label: `${model.provider}/${model.id}`,
+        searchText: model.name,
         description:
           model.contextWindow === null
             ? model.api

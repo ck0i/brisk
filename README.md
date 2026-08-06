@@ -62,6 +62,7 @@ Slash commands, keybindings, and permission modes: [Usage](docs/USAGE.md). Provi
 | ----------------------- | -------------------------------------------------- |
 | Configuration and paths | [docs/CONFIGURATION.md](docs/CONFIGURATION.md)     |
 | Auth and models         | [docs/PROVIDERS.md](docs/PROVIDERS.md)             |
+| MCP servers             | [docs/MCP.md](docs/MCP.md)                         |
 | Extensions              | [docs/EXTENSIONS.md](docs/EXTENSIONS.md)           |
 | Interactive reference   | [docs/USAGE.md](docs/USAGE.md)                     |
 | Problems                | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) |

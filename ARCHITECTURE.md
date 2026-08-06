@@ -25,6 +25,7 @@ The UI owns terminal I/O and shutdown; runtime coordinates services.
 | Context    | `src/context/`           | Estimation, Snapcompact (dynamic import)                                               |
 | Subagents  | `src/subagents/`         | Checkpoints, child sessions, patch overlay                                             |
 | Extensions | `src/extensions/`        | Discovery, contributions, reload                                                       |
+| MCP        | `src/mcp/`               | User config, stdio/HTTP clients, cached catalogs, progressive tool discovery           |
 | Config     | `src/config/`            | JSONC layers, schema, paths                                                            |
 | Updates    | `src/update/`            | Validated GitHub releases and semantic version checks                                  |
 
@@ -51,6 +52,8 @@ Append-only session JSONL; index is rebuildable. Partial final lines and incompl
 ## Context
 
 Full history stays in `AgentLoop`; `ContextManager` builds the active provider view and runs Snapcompact on threshold, `/compact`, or overflow recovery. Threshold checks include active messages, system/tool input, and measured input drift, but not cache read/write counters. Every subagent owns an isolated `ContextManager` over its immutable checkpoint plus private continuation.
+
+MCP catalogs stay host-side. The provider receives a stable search/describe/call meta-tool set rather than every remote schema; full schemas enter history only after explicit progressive discovery. Tool-list notifications refresh the cached catalog without changing the provider tool prefix.
 
 ## Subagents and patch isolation
 

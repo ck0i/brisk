@@ -27,6 +27,7 @@ describe("configuration paths", () => {
       dataRoot: "/xdg/data/brisk",
       cacheRoot: "/xdg/cache/brisk",
       globalConfigPath: "/xdg/config/brisk/config.jsonc",
+      mcpConfigPath: "/xdg/config/brisk/mcp.json",
       userAgentsPath: "/xdg/config/brisk/AGENTS.md",
       sessionsDir: "/xdg/data/brisk/sessions",
       artifactsDir: "/xdg/data/brisk/artifacts",
@@ -55,6 +56,7 @@ describe("configuration paths", () => {
     expect(paths.globalConfigPath).toBe(
       "/Users/tester/Library/Application Support/Brisk/config.jsonc",
     );
+    expect(paths.mcpConfigPath).toBe("/Users/tester/Library/Application Support/Brisk/mcp.json");
     expect(paths.userAgentsPath).toBe("/Users/tester/Library/Application Support/Brisk/AGENTS.md");
   });
 
@@ -72,6 +74,7 @@ describe("configuration paths", () => {
     expect(paths.dataRoot).toBe("R:\\Roaming\\Brisk");
     expect(paths.cacheRoot).toBe("L:\\Local\\Brisk\\Cache");
     expect(paths.modelCachePath).toBe("L:\\Local\\Brisk\\Cache\\models.json");
+    expect(paths.mcpConfigPath).toBe("R:\\Roaming\\Brisk\\mcp.json");
     expect(paths.userAgentsPath).toBe("R:\\Roaming\\Brisk\\AGENTS.md");
   });
 

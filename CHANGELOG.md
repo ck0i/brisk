@@ -10,6 +10,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 - Maintainer-gated GitHub Actions releases on every `main` push, with automatic npm publication, `brisk-*` standalone archives, release checksums, and generated tags.
 - Post-first-frame update notifications and `brisk update` support for global package installs and complete standalone release directories.
 - First-class `/loop`, persistent autonomous `/goal`, and private read-only `/btw` side-thread workflows, built into the runtime and TUI rather than loaded as extensions.
+- First-class MCP clients for user-level `mcp.json`, local stdio and Streamable HTTP transports, interactive `/mcp` management, scoped approvals, and token-efficient progressive tool discovery.
 
 ### Fixed
 

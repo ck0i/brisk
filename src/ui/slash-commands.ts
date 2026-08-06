@@ -18,6 +18,7 @@ export const BUILT_IN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "/compact", description: "compact context" },
   { name: "/context", description: "inspect context usage" },
   { name: "/agents", description: "open child agents" },
+  { name: "/mcp", description: "manage MCP servers" },
   { name: "/reload", description: "reload configuration and extensions" },
   { name: "/cost", description: "show recorded cost" },
   { name: "/settings", description: "edit runtime settings" },

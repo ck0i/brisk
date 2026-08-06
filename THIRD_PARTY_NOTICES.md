@@ -4,21 +4,28 @@ This file covers Brisk's direct runtime dependencies at the versions pinned in `
 
 ## Direct runtime packages
 
-| Package                 | Version | License      | Project                                                                    |
-| ----------------------- | ------: | ------------ | -------------------------------------------------------------------------- |
-| `@oh-my-pi/hashline`    |  17.2.6 | MIT          | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/hashline>       |
-| `@oh-my-pi/pi-ai`       |  17.2.6 | MIT          | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/ai>             |
-| `@oh-my-pi/pi-catalog`  |  17.2.6 | MIT          | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/catalog>        |
-| `@oh-my-pi/snapcompact` |  17.2.6 | MIT          | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/snapcompact>    |
-| `@opentui/core`         |   0.5.0 | MIT          | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/core>           |
-| `@opentui/solid`        |   0.5.0 | MIT          | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/solid>          |
-| `diff`                  |   8.0.3 | BSD-3-Clause | <https://github.com/kpdecker/jsdiff>                                       |
-| `jsonc-parser`          |   3.3.1 | MIT          | <https://github.com/microsoft/node-jsonc-parser>                           |
-| `solid-js`              |  1.9.12 | MIT          | <https://github.com/solidjs/solid>                                         |
-| `web-tree-sitter`       | 0.25.10 | MIT          | <https://github.com/tree-sitter/tree-sitter/tree/v0.25.10/lib/binding_web> |
-| `zod`                   |   4.4.3 | MIT          | <https://github.com/colinhacks/zod>                                        |
+| Package                        | Version | License                     | Project                                                                    |
+| ------------------------------ | ------: | --------------------------- | -------------------------------------------------------------------------- |
+| `@modelcontextprotocol/client` |   2.0.0 | Apache-2.0 / MIT transition | <https://github.com/modelcontextprotocol/typescript-sdk>                   |
+| `@oh-my-pi/hashline`           |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/hashline>       |
+| `@oh-my-pi/pi-ai`              |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/ai>             |
+| `@oh-my-pi/pi-catalog`         |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/catalog>        |
+| `@oh-my-pi/snapcompact`        |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/snapcompact>    |
+| `@opentui/core`                |   0.5.0 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/core>           |
+| `@opentui/solid`               |   0.5.0 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/solid>          |
+| `diff`                         |   8.0.3 | BSD-3-Clause                | <https://github.com/kpdecker/jsdiff>                                       |
+| `jsonc-parser`                 |   3.3.1 | MIT                         | <https://github.com/microsoft/node-jsonc-parser>                           |
+| `solid-js`                     |  1.9.12 | MIT                         | <https://github.com/solidjs/solid>                                         |
+| `web-tree-sitter`              | 0.25.10 | MIT                         | <https://github.com/tree-sitter/tree-sitter/tree/v0.25.10/lib/binding_web> |
+| `zod`                          |   4.4.3 | MIT                         | <https://github.com/colinhacks/zod>                                        |
 
-Versions and SPDX-style license names above are taken from the installed package metadata. The copyright notices below are retained from installed license files or the identified upstream release license where a package omitted a license file.
+Versions and license information above are taken from installed package metadata and bundled license files. The copyright notices below are retained from installed license files or the identified upstream release license where a package omitted a license file.
+
+## Model Context Protocol client
+
+Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.
+
+The project is transitioning from MIT to Apache-2.0; contributions retain the applicable original license. The complete upstream transition notice and license texts ship in the installed package. Standalone Brisk releases include them at `licenses/@modelcontextprotocol-client-LICENSE`.
 
 ## MIT attributions
 

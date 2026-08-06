@@ -25,6 +25,7 @@ export interface ConfigPaths {
   readonly dataRoot: string;
   readonly cacheRoot: string;
   readonly globalConfigPath: string;
+  readonly mcpConfigPath: string;
   readonly userAgentsPath: string;
   readonly sessionsDir: string;
   readonly artifactsDir: string;
@@ -97,6 +98,7 @@ export function resolveConfigPaths(input: ConfigPathInput = {}): ConfigPaths {
     dataRoot,
     cacheRoot,
     globalConfigPath: path.join(configRoot, "config.jsonc"),
+    mcpConfigPath: path.join(configRoot, "mcp.json"),
     userAgentsPath: path.join(configRoot, "AGENTS.md"),
     sessionsDir: path.join(dataRoot, "sessions"),
     artifactsDir: path.join(dataRoot, "artifacts"),

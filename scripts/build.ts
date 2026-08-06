@@ -117,6 +117,7 @@ const DOCUMENTS = [
   "THIRD_PARTY_NOTICES.md",
   "docs/CONFIGURATION.md",
   "docs/EXTENSIONS.md",
+  "docs/MCP.md",
   "docs/PROVIDERS.md",
   "docs/TROUBLESHOOTING.md",
   "docs/USAGE.md",
@@ -314,6 +315,15 @@ async function copyReleaseDocuments(releaseDirectory: string): Promise<void> {
     await mkdir(dirname(destination), { recursive: true });
     await copyFile(source, destination);
   }
+  const mcpLicense = join(ROOT, "node_modules", "@modelcontextprotocol", "client", "LICENSE");
+  await requirePath(mcpLicense, "MCP client license");
+  const mcpLicenseDestination = join(
+    releaseDirectory,
+    "licenses",
+    "@modelcontextprotocol-client-LICENSE",
+  );
+  await mkdir(dirname(mcpLicenseDestination), { recursive: true });
+  await copyFile(mcpLicense, mcpLicenseDestination);
 }
 
 async function copyRuntimeAssets(

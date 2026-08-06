@@ -7,6 +7,15 @@ import { ensureConfigDirectories, resolveConfigPaths, type ConfigPaths } from ".
 import type { BriskConfig, ConfigOverrides, EffortSetting } from "../config/schema.ts";
 import { writeConfigValue } from "../config/write.ts";
 import {
+  McpRuntime,
+  writeMcpServer,
+  writeMcpServerEnabled,
+  type HttpMcpServerConfig,
+  type McpLoadSummary,
+  type McpServerStatus,
+  type StdioMcpServerConfig,
+} from "../mcp/index.ts";
+import {
   ContextManager,
   estimateMessages,
   type ContextInspection,
@@ -73,6 +82,8 @@ export class InteractiveRuntime {
   private codingServices: CodingToolServices | undefined;
   private subagents: RuntimeSubagents | undefined;
   private extensions: RuntimeExtensions | undefined;
+  private mcp: McpRuntime | undefined;
+  private mcpToolsInstalled = false;
   private btw: BtwRuntime | undefined;
   private goalMode: GoalRuntime | undefined;
   private loopMode: LoopRuntime | undefined;
@@ -136,6 +147,7 @@ export class InteractiveRuntime {
       await runtime.initializeSession();
       runtime.initializeBuiltInModes();
       await runtime.initializeCodingTools();
+      await runtime.initializeMcp();
       if (options.command.fakeProvider) await runtime.initializeFakeProvider();
       else await runtime.initializeProviderService();
       await runtime.initializeExtensions();
@@ -244,6 +256,8 @@ export class InteractiveRuntime {
     });
     await this.extensions?.emitLifecycle("shutdown");
     await this.extensions?.dispose();
+    await this.mcp?.close();
+    this.mcp = undefined;
     this.approvalController.dispose();
     this.authController.dispose();
     this.pickerController.dispose();
@@ -392,6 +406,31 @@ export class InteractiveRuntime {
       approvalHandler: this.approvalController,
     });
     this.tools.register(this.goalMode!.tool);
+  }
+
+  private async initializeMcp(): Promise<void> {
+    const services = this.codingServices;
+    if (!services) throw new Error("Coding services must initialize before MCP");
+    const runtime = new McpRuntime({
+      configPath: this.paths.mcpConfigPath,
+      workspace: this.options.workspace,
+      artifacts: services.artifacts,
+      permissions: services.permissions,
+    });
+    this.mcp = runtime;
+    try {
+      const summary = await runtime.reload();
+      this.installMcpTools();
+      if (summary.configured > 0) this.addSystem(formatMcpSummary(summary));
+    } catch (error) {
+      this.addSystem(`MCP configuration failed: ${redactedErrorMessage(error)}`);
+    }
+  }
+
+  private installMcpTools(): void {
+    if (this.mcpToolsInstalled || !this.mcp || this.mcp.connectedCount === 0) return;
+    this.mcp.installTools(this.tools);
+    this.mcpToolsInstalled = true;
   }
 
   private async initializeExtensions(): Promise<void> {
@@ -818,7 +857,12 @@ export class InteractiveRuntime {
 
   private async resetSessionTools(): Promise<void> {
     this.tools = new ToolRegistry();
+    this.mcpToolsInstalled = false;
     await this.initializeCodingTools();
+    if (this.mcp && this.codingServices) {
+      this.mcp.setServices(this.codingServices.artifacts, this.codingServices.permissions);
+      this.installMcpTools();
+    }
     this.installExtensionTools();
   }
 
@@ -837,8 +881,12 @@ export class InteractiveRuntime {
     await this.teardownAgent();
     this.providerService?.close();
     this.providerService = undefined;
+    await this.mcp?.close();
+    this.mcp = undefined;
     this.tools = new ToolRegistry();
+    this.mcpToolsInstalled = false;
     await this.initializeCodingTools();
+    await this.initializeMcp();
     const summary = await this.extensions?.reload();
     if (this.options.command.fakeProvider) await this.initializeFakeProvider();
     else await this.initializeProviderService();
@@ -939,6 +987,9 @@ export class InteractiveRuntime {
       case "/agents":
         if (!this.subagents?.openPanel()) this.addSystem("No child agents are active yet.");
         return true;
+      case "/mcp":
+        await this.executeMcpCommand(argument);
+        return true;
       case "/new":
         await this.createNewSession();
         return true;
@@ -979,6 +1030,194 @@ export class InteractiveRuntime {
         return true;
       }
     }
+  }
+
+  private async executeMcpCommand(argument: string): Promise<void> {
+    const action = argument.trim().toLowerCase();
+    if (action === "status") {
+      this.showMcpStatus();
+      return;
+    }
+    if (
+      this.deferUntilAgentIdle("MCP management", async () => await this.executeMcpCommand(action))
+    ) {
+      return;
+    }
+    if (action === "reload") {
+      await this.reloadMcp();
+      return;
+    }
+    if (action === "add") {
+      await this.addMcpServer();
+      return;
+    }
+    if (action) {
+      this.addSystem("Usage: /mcp [status|reload|add]");
+      return;
+    }
+    await this.openMcpMenu();
+  }
+
+  private async openMcpMenu(): Promise<void> {
+    while (!this.closed) {
+      const statuses = this.mcp?.statuses ?? [];
+      const choice = await this.pickerController.choose({
+        title: `MCP servers · ${this.paths.mcpConfigPath}`,
+        options: [
+          ...statuses.map((status) => ({
+            id: `server:${status.name}`,
+            label: status.name,
+            description: mcpStatusDescription(status),
+          })),
+          { id: "add", label: "Add server", description: "stdio or Streamable HTTP" },
+          { id: "reload", label: "Reload mcp.json", description: "reconnect configured servers" },
+          { id: "done", label: "Done" },
+        ],
+      });
+      if (choice === undefined || choice === "done") return;
+      if (choice === "add") await this.addMcpServer();
+      else if (choice === "reload") await this.reloadMcp();
+      else if (choice.startsWith("server:")) await this.manageMcpServer(choice.slice(7));
+    }
+  }
+
+  private async manageMcpServer(name: string): Promise<void> {
+    const status = this.mcp?.statuses.find((candidate) => candidate.name === name);
+    const config = this.mcp?.currentConfig.mcpServers[name];
+    if (!status || !config) {
+      this.addSystem(`MCP server \`${name}\` is no longer configured.`);
+      return;
+    }
+    const choice = await this.pickerController.choose({
+      title: `MCP · ${name}`,
+      options: [
+        { id: "details", label: "Show details", description: mcpStatusDescription(status) },
+        {
+          id: "toggle",
+          label: config.enabled ? "Disable" : "Enable",
+          description: config.enabled ? "keep config without connecting" : "connect this server",
+        },
+        { id: "reconnect", label: "Reconnect", description: "refresh its tool catalog" },
+        { id: "remove", label: "Remove", description: "delete this entry from mcp.json" },
+        { id: "back", label: "Back" },
+      ],
+    });
+    if (choice === undefined || choice === "back") return;
+    if (choice === "details") {
+      this.addSystem(formatMcpStatus([status], this.paths.mcpConfigPath));
+      return;
+    }
+    if (choice === "toggle") {
+      await writeMcpServerEnabled(this.paths.mcpConfigPath, name, !config.enabled);
+      await this.reloadMcp();
+      return;
+    }
+    if (choice === "reconnect") {
+      const refreshed = await this.mcp?.reconnect(name);
+      this.installMcpTools();
+      if (refreshed) this.addSystem(formatMcpStatus([refreshed], this.paths.mcpConfigPath));
+      return;
+    }
+    if (choice === "remove") {
+      const confirmed = await this.pickerController.choose({
+        title: `Remove MCP server ${name}?`,
+        options: [
+          { id: "cancel", label: "Cancel" },
+          {
+            id: "remove",
+            label: "Remove",
+            description: "delete this server entry from mcp.json",
+          },
+        ],
+      });
+      if (confirmed !== "remove") return;
+      await writeMcpServer(this.paths.mcpConfigPath, name, undefined);
+      await this.reloadMcp();
+    }
+  }
+
+  private async addMcpServer(): Promise<void> {
+    const existing = new Set(Object.keys(this.mcp?.currentConfig.mcpServers ?? {}));
+    const name = await this.textInputController.prompt({
+      title: "Add MCP server",
+      message: "Server name",
+      placeholder: "github",
+      validate: (value) => {
+        if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(value)) {
+          return "Use 1–64 letters, numbers, dots, underscores, or hyphens.";
+        }
+        return existing.has(value) ? "That MCP server name already exists." : undefined;
+      },
+    });
+    if (!name) return;
+    const transport = await this.pickerController.choose({
+      title: `Transport · ${name}`,
+      options: [
+        { id: "stdio", label: "Local stdio", description: "spawn an executable without a shell" },
+        { id: "http", label: "Streamable HTTP", description: "connect to an http(s) MCP endpoint" },
+      ],
+    });
+    if (!transport) return;
+
+    if (transport === "stdio") {
+      const command = await this.textInputController.prompt({
+        title: `MCP executable · ${name}`,
+        message: "Executable (for example: npx, uvx, or an absolute path)",
+        validate: (value) => (value ? undefined : "Executable is required."),
+      });
+      if (!command) return;
+      const rawArguments = await this.textInputController.prompt({
+        title: `MCP arguments · ${name}`,
+        message: "JSON string array; use [] when no arguments are needed",
+        value: "[]",
+        validate: validateMcpArguments,
+      });
+      if (rawArguments === undefined) return;
+      const server: StdioMcpServerConfig = {
+        type: "stdio",
+        command,
+        args: parseMcpArguments(rawArguments),
+        enabled: true,
+        timeoutMs: 60_000,
+      };
+      await writeMcpServer(this.paths.mcpConfigPath, name, server);
+    } else {
+      const url = await this.textInputController.prompt({
+        title: `MCP endpoint · ${name}`,
+        message: "Streamable HTTP URL",
+        placeholder: "https://example.com/mcp",
+        validate: validateMcpUrl,
+      });
+      if (!url) return;
+      const server: HttpMcpServerConfig = {
+        type: "streamable-http",
+        url,
+        enabled: true,
+        timeoutMs: 60_000,
+      };
+      await writeMcpServer(this.paths.mcpConfigPath, name, server);
+    }
+    this.addSystem(
+      `Added MCP server \`${name}\` to \`${this.paths.mcpConfigPath}\`. Add environment placeholders or HTTP headers there if authentication is required.`,
+    );
+    await this.reloadMcp();
+  }
+
+  private async reloadMcp(): Promise<void> {
+    const runtime = this.mcp;
+    if (!runtime) {
+      await this.initializeMcp();
+      return;
+    }
+    const services = this.codingServices;
+    if (services) runtime.setServices(services.artifacts, services.permissions);
+    const summary = await runtime.reload();
+    this.installMcpTools();
+    this.addSystem(formatMcpSummary(summary));
+  }
+
+  private showMcpStatus(): void {
+    this.addSystem(formatMcpStatus(this.mcp?.statuses ?? [], this.paths.mcpConfigPath));
   }
 
   private async openSettings(): Promise<void> {
@@ -1685,6 +1924,65 @@ function formatContextInspection(inspection: ContextInspection): string {
 function helpText(): string {
   const commands = BUILT_IN_SLASH_COMMANDS.map((command) => `\`${command.name}\``).join(", ");
   return `**Keys**\n\n- Enter: submit\n- Shift+Enter or Ctrl+J: newline\n- Esc: abort active work\n- Ctrl+C: clear composer input\n- Ctrl+D: exit\n- Ctrl+P: list models\n- Ctrl+O: list sessions\n- Tab: expand or collapse the latest thinking/tool result\n- PageUp: reveal older windowed conversation messages\n\n**Commands**\n\n${commands}`;
+}
+
+function validateMcpArguments(value: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!Array.isArray(parsed) || parsed.some((argument) => typeof argument !== "string")) {
+      return 'Expected a JSON string array such as ["--flag", "value"].';
+    }
+    if (parsed.length > 256) return "At most 256 arguments are allowed.";
+    return undefined;
+  } catch {
+    return 'Expected a JSON string array such as ["--flag", "value"].';
+  }
+}
+
+function parseMcpArguments(value: string): string[] {
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || parsed.some((argument) => typeof argument !== "string")) {
+    throw new TypeError("MCP arguments must be a JSON string array");
+  }
+  return parsed;
+}
+
+function validateMcpUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return "Use an http or https URL.";
+    if (url.username || url.password) return "Do not put credentials in the URL.";
+    return undefined;
+  } catch {
+    return "Enter a valid absolute URL.";
+  }
+}
+
+function formatMcpSummary(summary: McpLoadSummary): string {
+  return [
+    "**MCP**",
+    `- servers: ${summary.connected} connected · ${summary.disabled} disabled · ${summary.failed} failed`,
+    `- cached tools: ${summary.tools}`,
+    "- discovery: progressive search → describe → call (stable prompt-cache footprint)",
+  ].join("\n");
+}
+
+function formatMcpStatus(statuses: readonly McpServerStatus[], configPath: string): string {
+  if (statuses.length === 0) {
+    return `**MCP**\n\nNo servers configured. Use \`/mcp add\` or edit \`${configPath}\`.`;
+  }
+  return [
+    "**MCP servers**",
+    `Config: \`${configPath}\``,
+    ...statuses.map(
+      (status) =>
+        `- \`${status.name}\` · ${mcpStatusDescription(status)}${status.error ? ` · ${status.error}` : ""}`,
+    ),
+  ].join("\n");
+}
+
+function mcpStatusDescription(status: McpServerStatus): string {
+  return `${status.state} · ${status.transport} · ${status.toolCount} tool${status.toolCount === 1 ? "" : "s"}`;
 }
 
 function configuredGoalMaxTurns(

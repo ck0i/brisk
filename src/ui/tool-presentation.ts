@@ -13,6 +13,16 @@ export function summarizeToolCall(call: ToolCall): string | undefined {
   if (call.name === "task_status" && typeof arguments_.childSessionId === "string") {
     return compact(arguments_.childSessionId);
   }
+  if (call.name === "mcp_search" && typeof arguments_.query === "string") {
+    return compact(arguments_.query || "all tools");
+  }
+  if (
+    (call.name === "mcp_describe" || call.name === "mcp_call") &&
+    typeof arguments_.server === "string" &&
+    typeof arguments_.tool === "string"
+  ) {
+    return compact(`${arguments_.server}/${arguments_.tool}`);
+  }
   if (call.name === "edit" && typeof arguments_.patch === "string") {
     const paths = [
       ...new Set(

@@ -22,6 +22,8 @@ Project file: `<workspace>/.brisk/config.jsonc`.
 
 User `AGENTS.md` lives beside global config; workspace `AGENTS.md` files override by directory depth. See [Usage](USAGE.md).
 
+User-level MCP servers live in `mcp.json` beside the global config and are managed independently from layered project settings. See [MCP](MCP.md).
+
 ## Example
 
 ```jsonc

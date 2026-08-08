@@ -128,6 +128,63 @@ describe("first-class modes", () => {
     await resumed.close();
   });
 
+  test("/goal retries duplicate provider responses instead of pausing on error", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-goal-retry-"));
+    roots.push(root);
+    const session = await SessionRuntime.initialize({
+      sessionsDir: join(root, "sessions"),
+      sessionIndexPath: join(root, "index.json"),
+      artifactsDir: join(root, "artifacts"),
+      workspace: root,
+      selectedProvider: "fake",
+      selectedModel: "model",
+    });
+    const provider = new FakeProvider([
+      {
+        error: {
+          kind: "unknown",
+          message: "Provider returned a duplicate response",
+          retryAfter: 0,
+        },
+      },
+      { text: "recovered without stopping the goal" },
+    ]);
+    const notices: string[] = [];
+    let status: string | undefined;
+    const goal = new GoalRuntime({
+      session,
+      configuredMaxTurns: () => 0,
+      notify: (message) => notices.push(message),
+      setStatus: (value) => {
+        status = value;
+      },
+    });
+    const loop = new AgentLoop({
+      provider,
+      model: "fake/model",
+      retryDelayMs: 0,
+      dynamicSystemPrompt: () => goal.dynamicSystemPrompt(),
+      contextFilter: (messages) => goal.filterContext(messages),
+    });
+    session.attach(loop);
+    goal.attach(loop, async (prompt) => await loop.submitInternal(prompt, "goal-control"));
+
+    await goal.execute("Survive a duplicate provider response");
+    await waitFor(() => notices.some((message) => message.includes("0-turn continuation limit")));
+
+    expect(provider.requestCount).toBe(2);
+    expect(loop.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "recovered without stopping the goal",
+    });
+    expect(goal.status).toBe("paused");
+    expect(status).toBe("goal paused");
+    expect(notices.some((message) => message.includes("turn error"))).toBe(false);
+
+    goal.detachAgent();
+    await session.close();
+  });
+
   test("the goal tool completes the objective and terminates the current tool chain", async () => {
     const root = await mkdtemp(join(tmpdir(), "brisk-goal-complete-"));
     roots.push(root);

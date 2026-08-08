@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
 import { ContextManager } from "../../src/context/context-manager.ts";
-import { AgentLoop, type AgentContextLifecycle } from "../../src/core/agent-loop.ts";
+import {
+  AgentLoop,
+  DEFAULT_PROVIDER_MAX_RETRIES,
+  DEFAULT_PROVIDER_RETRY_DELAY_MS,
+  type AgentContextLifecycle,
+} from "../../src/core/agent-loop.ts";
 import type { AgentEvent, NormalizedProviderError } from "../../src/core/events.ts";
 import type { JsonValue } from "../../src/core/messages.ts";
 import { FakeProvider } from "../../src/providers/fake-provider.ts";
@@ -322,6 +327,46 @@ describe("AgentLoop failures and retries", () => {
 
     expect(provider.requestCount).toBe(3);
     expect(loop.messages.at(-1)).toMatchObject({ role: "assistant", content: "success" });
+  });
+
+  test("retries unhandled and duplicate-response failures", async () => {
+    const provider = new FakeProvider([
+      {
+        error: {
+          kind: "unknown",
+          message: "Provider returned a duplicate response",
+          retryAfter: 0,
+        },
+      },
+      { text: "recovered" },
+    ]);
+    const loop = new AgentLoop({ provider, model: "fake" });
+
+    await loop.submit("keep going");
+
+    expect(DEFAULT_PROVIDER_MAX_RETRIES).toBe(10);
+    expect(DEFAULT_PROVIDER_RETRY_DELAY_MS).toBe(3_000);
+    expect(provider.requestCount).toBe(2);
+    expect(loop.messages.at(-1)).toMatchObject({ role: "assistant", content: "recovered" });
+  });
+
+  test("uses ten retries by default before surfacing an unhandled failure", async () => {
+    const provider = new FakeProvider(
+      Array.from({ length: 12 }, (_, index) => ({
+        error: {
+          kind: "unknown" as const,
+          message: `failure ${index + 1}`,
+          retryAfter: 0,
+        },
+      })),
+    );
+    const loop = new AgentLoop({ provider, model: "fake" });
+
+    await expect(loop.submit("retry to the bound")).rejects.toMatchObject({
+      kind: "unknown",
+      message: "failure 11",
+    });
+    expect(provider.requestCount).toBe(11);
   });
 
   test("stops after the retry bound and never retries after a content delta", async () => {

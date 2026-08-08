@@ -18,6 +18,8 @@ import { MESSAGE_OVERHEAD_TOKENS, estimateTextTokens } from "../context/estimato
 import type { Provider, ProviderToolSchema } from "../providers/types.ts";
 import { ToolRegistry } from "../tools/registry.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+export const DEFAULT_PROVIDER_MAX_RETRIES = 10;
+export const DEFAULT_PROVIDER_RETRY_DELAY_MS = 3_000;
 
 export interface AgentContextLifecycle {
   /** Return the provider-ready view without changing the supplied full transcript. */
@@ -120,8 +122,8 @@ export class AgentLoop {
     this.contextFilter = options.contextFilter;
     this.sessionRolePrompt = options.sessionRolePrompt;
     this.stopWhen = options.stopWhen;
-    this.maxRetries = options.maxRetries ?? 2;
-    this.retryDelayMs = options.retryDelayMs ?? 50;
+    this.maxRetries = options.maxRetries ?? DEFAULT_PROVIDER_MAX_RETRIES;
+    this.retryDelayMs = options.retryDelayMs ?? DEFAULT_PROVIDER_RETRY_DELAY_MS;
     if (!Number.isInteger(this.maxRetries) || this.maxRetries < 0) {
       throw new RangeError("maxRetries must be a non-negative integer");
     }
@@ -307,8 +309,10 @@ export class AgentLoop {
           overflowCompacted = true;
           continue;
         }
-        if (!normalized.retryable || sawDelta || retryAttempt >= this.maxRetries) throw normalized;
-        const delay = normalized.retryAfter ?? this.retryDelayMs * 2 ** retryAttempt;
+        if (sawDelta || retryAttempt >= this.maxRetries || !shouldRetryProviderError(normalized)) {
+          throw normalized;
+        }
+        const delay = normalized.retryAfter ?? this.retryDelayMs;
         retryAttempt += 1;
         await abortableDelay(delay, signal);
       }
@@ -550,6 +554,13 @@ export class AgentLoop {
 
 function invalidResponse(message: string): NormalizedProviderError {
   return new NormalizedProviderError(message, { kind: "invalid_response" });
+}
+
+function shouldRetryProviderError(error: NormalizedProviderError): boolean {
+  if (error.kind === "aborted" || error.kind === "auth" || error.kind === "context_overflow") {
+    return false;
+  }
+  return error.retryable || error.kind === "unknown" || error.kind === "invalid_response";
 }
 
 function fixedInputTokens(

@@ -361,7 +361,7 @@ test("an exact slash command submits on the first Enter while its menu is visibl
   }
 });
 
-test("busy UI animates Brisk Working status and still submits slash commands", async () => {
+test("busy UI animates the unbranded working status and still submits slash commands", async () => {
   const store = new UiStore("fixture");
   store.update({ busy: true, status: "streaming" });
   const submissions: string[] = [];
@@ -381,16 +381,17 @@ test("busy UI animates Brisk Working status and still submits slash commands", a
   );
   try {
     const first = await setup.renderOnce().then(() => setup.captureCharFrame());
-    expect(first).toContain("✦ B r i s k  Working.   · streaming");
+    expect(first).toContain("✦  Working.   · streaming");
+    expect(first).not.toContain("B r i s k");
     await Bun.sleep(180);
     await setup.flush();
-    expect(setup.captureCharFrame()).toContain("✦ B r i s k  Working.   · streaming");
+    expect(setup.captureCharFrame()).toContain("✦  Working.   · streaming");
 
     await Bun.sleep(200);
     const animated = await setup.waitForFrame(
-      (frame) => frame.includes("✧ B r i s k  Working..  · streaming") && frame !== first,
+      (frame) => frame.includes("✧  Working..  · streaming") && frame !== first,
     );
-    expect(animated.indexOf("B r i s k")).toBe(first.indexOf("B r i s k"));
+    expect(animated.indexOf("Working")).toBe(first.indexOf("Working"));
     expect(animated.indexOf("· streaming")).toBe(first.indexOf("· streaming"));
 
     await setup.mockInput.typeText("/effort");
@@ -563,6 +564,11 @@ test("long conversations mount a bounded window and PageUp expands it", async ()
     const scrollbox = findScrollBox(setup.renderer.root);
     expect(scrollbox).toBeInstanceOf(ScrollBoxRenderable);
     expect(scrollbox.getChildren().length).toBeLessThan(150);
+
+    const startingTop = scrollbox.scrollTop;
+    await setup.mockMouse.scroll(scrollbox.x + 2, scrollbox.y + 2, "up");
+    await setup.flush();
+    expect(startingTop - scrollbox.scrollTop).toBe(5);
 
     setup.mockInput.pressKey("\u001b[5~");
     await setup.flush();

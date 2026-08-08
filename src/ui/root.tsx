@@ -4,6 +4,7 @@ import {
   type CliRenderer,
   type InputRenderable,
   type KeyBinding,
+  type ScrollAcceleration,
   type ScrollBoxRenderable,
   type TextareaRenderable,
 } from "@opentui/core";
@@ -63,6 +64,11 @@ export function paletteForTheme(theme: UiTheme) {
 
 const BRISK_WORK_MARKS = ["✦", "✧", "·", "✧"] as const;
 const BRISK_WORK_INTERVAL_MS = 360;
+const CONVERSATION_SCROLL_ROWS = 5;
+const CONVERSATION_SCROLL_ACCELERATION: ScrollAcceleration = {
+  tick: () => CONVERSATION_SCROLL_ROWS,
+  reset: () => undefined,
+};
 
 const COMPOSER_BINDINGS: KeyBinding[] = [
   { name: "return", action: "submit" },
@@ -1418,6 +1424,7 @@ export function Root(props: RootProps) {
         stickyScroll
         stickyStart="bottom"
         viewportCulling
+        scrollAcceleration={CONVERSATION_SCROLL_ACCELERATION}
       >
         <Show
           when={visibleMessages().length > 0}
@@ -1464,7 +1471,7 @@ export function Root(props: RootProps) {
           width="100%"
         >
           <text fg={palette().accent} height={1} wrapMode="none" truncate>
-            <strong>{`${BRISK_WORK_MARKS[workingFrame()]} B r i s k`}</strong>
+            <strong>{BRISK_WORK_MARKS[workingFrame()]}</strong>
             {`  Working${".".repeat((workingFrame() % 3) + 1).padEnd(3)}`}
             <Show when={workingDetail()}> · {workingDetail()}</Show>
           </text>

@@ -24,7 +24,7 @@ import {
 import { AgentLoop } from "../core/agent-loop.ts";
 import { discoverAgentsInstructions } from "../core/agents-instructions.ts";
 import { buildDefaultSubtaskModelPrompt, buildWorkspacePrompt } from "../core/system-prompt.ts";
-import type { JsonValue, Message, ToolResultMessage } from "../core/messages.ts";
+import type { ImageContent, JsonValue, Message, ToolResultMessage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
 import { redactedErrorMessage } from "../providers/secret-redaction.ts";
 import { openFileInEditor } from "./file-opener.ts";
@@ -158,16 +158,18 @@ export class InteractiveRuntime {
     }
   }
 
-  async submit(value: string, tui: TuiRuntime): Promise<boolean> {
+  async submit(value: string, tui: TuiRuntime, images?: readonly ImageContent[]): Promise<boolean> {
     this.assertOpen();
-    if (value.startsWith("/")) return await this.executeCommand(value, tui);
+    if (value.startsWith("/") && (images?.length ?? 0) === 0) {
+      return await this.executeCommand(value, tui);
+    }
     if (!this.controller) {
       this.addSystem("No model is selected. Use `/login`, `/model`, or configure an API key.");
       return true;
     }
-    this.loopMode?.capturePrompt(value);
+    this.loopMode?.capturePrompt(value, images);
     try {
-      await this.runAgentPrompt(value, this.store.snapshot.busy ? "steer" : "submit");
+      await this.runAgentPrompt(value, this.store.snapshot.busy ? "steer" : "submit", images);
     } catch {
       // Provider failures are normalized and already visible through AgentUiController.
     }
@@ -382,16 +384,20 @@ export class InteractiveRuntime {
     });
   }
 
-  private async runAgentPrompt(text: string, delivery: "submit" | "steer" | "goal"): Promise<void> {
+  private async runAgentPrompt(
+    text: string,
+    delivery: "submit" | "steer" | "goal",
+    images?: readonly ImageContent[],
+  ): Promise<void> {
     const controller = this.controller;
     if (!controller) throw new Error("No model is selected");
     const sessionId = this.sessionRuntime?.sessionId ?? "unknown";
     await this.extensions?.emitLifecycle("turn-start", { sessionId });
     try {
       if (controller !== this.controller) return;
-      if (delivery === "steer") await controller.steer(text);
+      if (delivery === "steer") await controller.steer(text, images);
       else if (delivery === "goal") await controller.submitInternal(text, "goal-control");
-      else await controller.submit(text);
+      else await controller.submit(text, images);
     } finally {
       await this.extensions?.emitLifecycle("turn-end", { sessionId });
     }
@@ -725,7 +731,10 @@ export class InteractiveRuntime {
       this.store.update({ status: "session write failed", notice: error.message });
       this.addSystem(`Session persistence failed: ${error.message}`);
     });
-    this.loopMode?.attach(loop, async (prompt) => await this.runAgentPrompt(prompt, "submit"));
+    this.loopMode?.attach(
+      loop,
+      async (prompt, images) => await this.runAgentPrompt(prompt, "submit", images),
+    );
     this.goalMode?.attach(loop, async (prompt) => await this.runAgentPrompt(prompt, "goal"));
   }
 
@@ -1839,7 +1848,12 @@ function uiMessagesFromHistory(messages: readonly Message[]): UiMessage[] {
   for (const [index, message] of messages.entries()) {
     if (message.role === "user") {
       if (message.internal) continue;
-      visible.push({ id: `history-user-${index}`, role: "user", content: message.content });
+      visible.push({
+        id: `history-user-${index}`,
+        role: "user",
+        content: message.content,
+        ...(message.images === undefined ? {} : { imageCount: message.images.length }),
+      });
       continue;
     }
     if (message.role === "assistant") {

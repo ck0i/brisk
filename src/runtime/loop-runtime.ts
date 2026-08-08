@@ -1,8 +1,11 @@
+import type { ImageContent } from "../core/messages.ts";
+
 import type { AgentLoop } from "../core/agent-loop.ts";
 
 interface ActiveLoop {
   readonly prompt: string;
   readonly limit?: number;
+  readonly images?: readonly ImageContent[];
   iteration: number;
 }
 
@@ -18,7 +21,8 @@ export class LoopRuntime {
   private activeLoop: ActiveLoop | undefined;
   private failedReason: "aborted" | "error" | undefined;
   private unsubscribe: (() => void) | undefined;
-  private submitFollowUp: ((prompt: string) => Promise<void>) | undefined;
+  private submitFollowUp:
+    ((prompt: string, images?: readonly ImageContent[]) => Promise<void>) | undefined;
 
   constructor(private readonly options: LoopRuntimeOptions) {}
 
@@ -26,7 +30,10 @@ export class LoopRuntime {
     return this.armed || this.activeLoop !== undefined;
   }
 
-  attach(loop: AgentLoop, submitFollowUp: (prompt: string) => Promise<void>): void {
+  attach(
+    loop: AgentLoop,
+    submitFollowUp: (prompt: string, images?: readonly ImageContent[]) => Promise<void>,
+  ): void {
     this.detach();
     this.submitFollowUp = submitFollowUp;
     this.unsubscribe = loop.subscribe((event) => {
@@ -98,10 +105,11 @@ export class LoopRuntime {
   }
 
   /** Capture exactly the user prompt accepted by Brisk, before the first run starts. */
-  capturePrompt(prompt: string): void {
+  capturePrompt(prompt: string, images?: readonly ImageContent[]): void {
     if (!this.armed || this.activeLoop) return;
     this.activeLoop = {
       prompt,
+      ...(images === undefined || images.length === 0 ? {} : { images: [...images] }),
       ...(this.armedLimit === undefined ? {} : { limit: this.armedLimit }),
       iteration: 1,
     };
@@ -137,7 +145,7 @@ export class LoopRuntime {
     }
     current.iteration += 1;
     this.updateStatus();
-    void submit(current.prompt).catch(() => {
+    void submit(current.prompt, current.images).catch(() => {
       // Agent errors and cancellations are observed through the loop event stream.
     });
   }

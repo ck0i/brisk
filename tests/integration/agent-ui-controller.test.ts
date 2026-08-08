@@ -168,6 +168,40 @@ describe("AgentUiController", () => {
     expect(store.snapshot.messages[1]?.tools?.[0]?.expanded).toBeUndefined();
   });
 
+  test("removes a partial duplicate response before rendering its successful retry", async () => {
+    const store = new UiStore("fixture");
+    const loop = new AgentLoop({
+      provider: new FakeProvider([
+        {
+          text: "stale duplicate",
+          error: {
+            kind: "unknown",
+            message: "Provider returned a duplicate response",
+            retryAfter: 0,
+          },
+        },
+        { text: "recovered response" },
+      ]),
+      model: "fake",
+      retryDelayMs: 0,
+    });
+    const controller = new AgentUiController(loop, store, 1);
+
+    await controller.submit("continue the goal");
+    await settleFrames();
+    controller.dispose();
+
+    expect(store.snapshot.messages).toHaveLength(2);
+    expect(store.snapshot.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "recovered response",
+      streaming: false,
+    });
+    expect(store.snapshot.messages.some((message) => message.content.includes("stale"))).toBe(
+      false,
+    );
+    expect(store.snapshot.status).toBe("ready");
+  });
   test("keeps a cancelled partial response visible and stops the busy state", async () => {
     const store = new UiStore("fixture");
     const loop = new AgentLoop({

@@ -5,7 +5,11 @@ import { VERSION } from "./version.ts";
 const startedAt = performance.now();
 
 interface InteractiveController {
-  submit(value: string, tui: import("./app.tsx").TuiRuntime): Promise<boolean>;
+  submit(
+    value: string,
+    tui: import("./app.tsx").TuiRuntime,
+    images?: readonly import("./core/messages.ts").ImageContent[],
+  ): Promise<boolean>;
   abort(): void;
   openModelPicker(): Promise<void>;
   openSessionPicker(): Promise<void>;
@@ -104,12 +108,12 @@ async function main(): Promise<void> {
           store.update({ notice: existing ? `${existing}\n\n${notification}` : notification });
         });
       },
-      async submit(value, store, tui) {
+      async submit(value, store, tui, images) {
         if (!controller) {
           store.update({ status: "finishing initialization" });
           return false;
         }
-        return await controller.submit(value, tui);
+        return await controller.submit(value, tui, images);
       },
       abort(store) {
         controller?.abort();

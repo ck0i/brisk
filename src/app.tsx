@@ -1,8 +1,9 @@
 import { CliRenderEvents, createCliRenderer, type CliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 
+import type { ImageContent } from "./core/messages.ts";
 import { Root } from "./ui/root.tsx";
-import { copyTextToSystemClipboard } from "./ui/clipboard.ts";
+import { copyTextToSystemClipboard, readSystemClipboard } from "./ui/clipboard.ts";
 import { UiStore, type UiSnapshot } from "./ui/state.ts";
 
 export interface TuiRuntime {
@@ -12,7 +13,12 @@ export interface TuiRuntime {
 
 export interface TuiHandlers {
   initialize?: (store: UiStore, runtime: TuiRuntime) => void | Promise<void>;
-  submit: (value: string, store: UiStore, runtime: TuiRuntime) => boolean | Promise<boolean>;
+  submit: (
+    value: string,
+    store: UiStore,
+    runtime: TuiRuntime,
+    images?: readonly ImageContent[],
+  ) => boolean | Promise<boolean>;
   abort?: (store: UiStore) => void;
   openModels?: (store: UiStore) => void;
   openSessions?: (store: UiStore) => void;
@@ -90,13 +96,14 @@ export async function launchTui(options: LaunchTuiOptions): Promise<LaunchResult
       () => (
         <Root
           store={store}
-          onSubmit={(value) => options.handlers.submit(value, store, runtime)}
+          onSubmit={(value, images) => options.handlers.submit(value, store, runtime, images)}
           onAbort={() => options.handlers.abort?.(store)}
           onExit={exit}
           onOpenModels={() => options.handlers.openModels?.(store)}
           onOpenSessions={() => options.handlers.openSessions?.(store)}
           onOpenPath={(path) => options.handlers.openPath?.(path, store, runtime)}
           onCopyText={copyTextToSystemClipboard}
+          onReadClipboard={readSystemClipboard}
           onKeybinding={(key) => options.handlers.keybinding?.(key, store)}
           renderer={renderer}
         />

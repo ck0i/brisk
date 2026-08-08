@@ -61,6 +61,7 @@
     "@oh-my-pi/hashline": "17.2.6",
     "@oh-my-pi/pi-ai": "17.2.6",
     "@oh-my-pi/pi-catalog": "17.2.6",
+    "@oh-my-pi/pi-natives": "17.2.6",
     "@oh-my-pi/snapcompact": "17.2.6",
     "@opentui/core": "0.5.0",
     "@opentui/solid": "0.5.0",

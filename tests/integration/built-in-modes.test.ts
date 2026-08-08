@@ -29,18 +29,24 @@ describe("first-class modes", () => {
         status = value;
       },
     });
-    mode.attach(loop, async (prompt) => await loop.submit(prompt));
+    mode.attach(loop, async (prompt, images) => await loop.submit(prompt, images));
 
     // Arming a loop is a local command and remains available during an active run.
     mode.execute("3", false);
-    mode.capturePrompt("repeat this exactly");
-    await loop.submit("repeat this exactly");
+    const image = { type: "image" as const, data: "iVBORw==", mimeType: "image/png" };
+    mode.capturePrompt("repeat this exactly", [image]);
+    await loop.submit("repeat this exactly", [image]);
     await waitFor(() => notices.some((message) => message === "Loop complete after 3 runs."));
 
     expect(provider.requests.map((request) => request.messages.at(-1)?.content)).toEqual([
       "repeat this exactly",
       "repeat this exactly",
       "repeat this exactly",
+    ]);
+    expect(provider.requests.map((request) => request.messages.at(-1))).toEqual([
+      { role: "user", content: "repeat this exactly", images: [image] },
+      { role: "user", content: "repeat this exactly", images: [image] },
+      { role: "user", content: "repeat this exactly", images: [image] },
     ]);
     expect(status).toBeUndefined();
     mode.detach();
@@ -141,6 +147,7 @@ describe("first-class modes", () => {
     });
     const provider = new FakeProvider([
       {
+        text: "stale goal response",
         error: {
           kind: "unknown",
           message: "Provider returned a duplicate response",

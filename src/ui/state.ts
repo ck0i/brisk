@@ -18,6 +18,7 @@ export interface UiMessage {
   id: string;
   role: UiMessageRole;
   content: string;
+  imageCount?: number;
   thinking?: string;
   thinkingExpanded?: boolean;
   streaming?: boolean;

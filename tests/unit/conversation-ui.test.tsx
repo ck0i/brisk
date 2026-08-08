@@ -111,13 +111,62 @@ test("first render focuses the multiline composer and accepts a large paste", as
   try {
     const frame = await setup.renderOnce().then(() => setup.captureCharFrame());
     expect(frame).toContain("Brisk · fixture");
-    expect(frame).toContain("> Send a message or /help · Ctrl+J for newline");
+    expect(frame).toContain("Ctrl+V paste image · Ctrl+J newline");
     expect(setup.renderer.currentFocusedEditor).not.toBeNull();
     const prompt = Array.from({ length: 80 }, (_, index) => `line ${index}`).join("\n");
     await setup.mockInput.pasteBracketedText(prompt);
     setup.mockInput.pressEnter();
     await setup.waitFor(() => submissions.length === 1);
     expect(submissions).toEqual([prompt]);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("Ctrl+V attaches clipboard images and submits them with the composer text", async () => {
+  const store = new UiStore("fixture");
+  const submissions: Array<{
+    value: string;
+    images: readonly {
+      readonly type: "image";
+      readonly data: string;
+      readonly mimeType: string;
+    }[];
+  }> = [];
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={(value, images) => {
+          submissions.push({ value, images: images ?? [] });
+          return true;
+        }}
+        onAbort={() => {}}
+        onExit={() => {}}
+        onReadClipboard={async () => ({
+          type: "image",
+          data: "iVBORw==",
+          mimeType: "image/png",
+        })}
+      />
+    ),
+    { width: 90, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    setup.mockInput.pressKey("v", { ctrl: true });
+    await setup.waitForFrame((frame) => frame.includes("1 image attached · Ctrl+C clears"));
+    await setup.mockInput.typeText("describe this image");
+    setup.mockInput.pressEnter();
+    await setup.waitFor(() => submissions.length === 1);
+
+    expect(submissions).toEqual([
+      {
+        value: "describe this image",
+        images: [{ type: "image", data: "iVBORw==", mimeType: "image/png" }],
+      },
+    ]);
+    await setup.waitForFrame((frame) => !frame.includes("image attached · Ctrl+C clears"));
   } finally {
     setup.renderer.destroy();
   }

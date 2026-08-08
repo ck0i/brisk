@@ -7,6 +7,7 @@ import {
 } from "./events.ts";
 import type {
   AssistantMessage,
+  ImageContent,
   Message,
   ProviderReplay,
   ToolCall,
@@ -69,6 +70,7 @@ export type AgentEventListener = (event: AgentEvent) => void;
 
 interface PendingTurn {
   readonly text: string;
+  readonly images?: readonly ImageContent[];
   readonly internal?: UserMessage["internal"];
   readonly resolve: () => void;
   readonly reject: (error: NormalizedProviderError) => void;
@@ -165,8 +167,8 @@ export class AgentLoop {
     return () => this.listeners.delete(listener);
   }
 
-  submit(text: string): Promise<void> {
-    return this.enqueue(text);
+  submit(text: string, images?: readonly ImageContent[]): Promise<void> {
+    return this.enqueue(text, undefined, images);
   }
 
   /** Queue a persisted Brisk control turn without exposing it as a user-authored UI message. */
@@ -174,9 +176,9 @@ export class AgentLoop {
     return this.enqueue(text, internal);
   }
 
-  steer(text: string): Promise<void> {
+  steer(text: string, images?: readonly ImageContent[]): Promise<void> {
     const active = this.activeController;
-    const completion = this.enqueue(text);
+    const completion = this.enqueue(text, undefined, images);
     active?.abort(new DOMException("Steered", "AbortError"));
     return completion;
   }
@@ -185,13 +187,20 @@ export class AgentLoop {
     this.activeController?.abort(new DOMException("Cancelled", "AbortError"));
   }
 
-  private enqueue(text: string, internal?: UserMessage["internal"]): Promise<void> {
-    if (text.length === 0) return Promise.reject(new TypeError("Message cannot be empty"));
+  private enqueue(
+    text: string,
+    internal?: UserMessage["internal"],
+    images?: readonly ImageContent[],
+  ): Promise<void> {
+    if (text.length === 0 && (images?.length ?? 0) === 0) {
+      return Promise.reject(new TypeError("Message cannot be empty"));
+    }
 
     const completion = new Promise<void>((resolve, reject: (error: unknown) => void) => {
       this.pending.push({
         text,
         ...(internal === undefined ? {} : { internal }),
+        ...(images === undefined || images.length === 0 ? {} : { images: [...images] }),
         resolve,
         reject: (error) => reject(error),
       });
@@ -212,6 +221,7 @@ export class AgentLoop {
         const userMessage: UserMessage = {
           role: "user",
           content: pending.text,
+          ...(pending.images === undefined ? {} : { images: pending.images }),
           ...(pending.internal === undefined ? {} : { internal: pending.internal }),
         };
         this.history.push(userMessage);
@@ -309,11 +319,21 @@ export class AgentLoop {
           overflowCompacted = true;
           continue;
         }
-        if (sawDelta || retryAttempt >= this.maxRetries || !shouldRetryProviderError(normalized)) {
+        if (
+          (sawDelta && !isDuplicateResponseError(normalized)) ||
+          retryAttempt >= this.maxRetries ||
+          !shouldRetryProviderError(normalized)
+        ) {
           throw normalized;
         }
         const delay = normalized.retryAfter ?? this.retryDelayMs;
         retryAttempt += 1;
+        this.publish({
+          type: "response_retry",
+          error: normalized,
+          attempt: retryAttempt,
+          delayMs: delay,
+        });
         await abortableDelay(delay, signal);
       }
     }
@@ -561,6 +581,13 @@ function shouldRetryProviderError(error: NormalizedProviderError): boolean {
     return false;
   }
   return error.retryable || error.kind === "unknown" || error.kind === "invalid_response";
+}
+
+function isDuplicateResponseError(error: NormalizedProviderError): boolean {
+  return (
+    /\bduplicate response\b/i.test(error.message) ||
+    /response_start after response content/i.test(error.message)
+  );
 }
 
 function fixedInputTokens(

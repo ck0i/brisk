@@ -225,6 +225,16 @@ export class BtwRuntime {
       case "usage":
         thread.cost += event.usage.cost ?? 0;
         break;
+      case "response_retry": {
+        const id = thread.currentAssistantId;
+        thread.currentAssistantId = undefined;
+        this.options.store.updateBtw(thread.id, {
+          busy: true,
+          status: `Retrying provider · ${event.attempt}`,
+          messages: id ? state.messages.filter((message) => message.id !== id) : state.messages,
+        });
+        break;
+      }
       case "error":
         this.fail(thread, event.error.message);
         break;

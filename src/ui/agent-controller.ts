@@ -1,6 +1,7 @@
 import { AgentLoop } from "../core/agent-loop.ts";
 import { EventBatcher } from "../core/event-batcher.ts";
 import type { AgentEvent } from "../core/events.ts";
+import type { ImageContent } from "../core/messages.ts";
 import type { UiMessage, UiSnapshot, UiToolCard } from "./state.ts";
 import { UiStore } from "./state.ts";
 import { extractToolDiff, summarizeToolCall, summarizeToolResult } from "./tool-presentation.ts";
@@ -21,9 +22,9 @@ export class AgentUiController {
     this.unsubscribe = loop.subscribe((event) => this.batcher.push(event));
   }
 
-  async submit(text: string): Promise<void> {
+  async submit(text: string, images?: readonly ImageContent[]): Promise<void> {
     this.store.update({ busy: true, status: "responding" });
-    await this.loop.submit(text);
+    await this.loop.submit(text, images);
   }
 
   async submitInternal(text: string, internal: "goal-control"): Promise<void> {
@@ -31,9 +32,9 @@ export class AgentUiController {
     await this.loop.submitInternal(text, internal);
   }
 
-  async steer(text: string): Promise<void> {
+  async steer(text: string, images?: readonly ImageContent[]): Promise<void> {
     this.store.update({ busy: true, status: "steering" });
-    await this.loop.steer(text);
+    await this.loop.steer(text, images);
   }
 
   cancel(): void {
@@ -71,12 +72,26 @@ export class AgentUiController {
           this.requestContextEstimate = event.contextTokens;
           contextTokens = event.contextTokens;
           break;
+        case "response_retry": {
+          this.requestContextEstimate = undefined;
+          const active = activeMessage();
+          if (active?.streaming) {
+            messages = messages.filter((message) => message.id !== active.id);
+          }
+          this.activeMessageId = undefined;
+          busy = true;
+          status = `provider retry ${event.attempt}`;
+          break;
+        }
         case "user_message":
           if (event.message.internal) break;
           messages.push({
             id: crypto.randomUUID(),
             role: "user",
             content: event.message.content,
+            ...(event.message.images === undefined
+              ? {}
+              : { imageCount: event.message.images.length }),
           });
           busy = true;
           status = "responding";

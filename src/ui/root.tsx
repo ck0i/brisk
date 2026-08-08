@@ -11,7 +11,9 @@ import {
 import { onResize, useKeyboard, useRenderer } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
+import type { ImageContent } from "../core/messages.ts";
 import { redactSecrets } from "../providers/secret-redaction.ts";
+import type { ClipboardPaste } from "./clipboard.ts";
 import { diffSectionHeight, splitDiffPreview } from "./diff-presentation.ts";
 import { rankPickerOptions } from "./picker-search.ts";
 import { BUILT_IN_SLASH_COMMANDS, type SlashCommand } from "./slash-commands.ts";
@@ -103,13 +105,14 @@ function normalizedExtensionKey(key: {
 
 export interface RootProps {
   store: UiStore;
-  onSubmit: (value: string) => boolean | Promise<boolean>;
+  onSubmit: (value: string, images?: readonly ImageContent[]) => boolean | Promise<boolean>;
   onAbort: () => void;
   onExit: () => void;
   onOpenModels?: () => void;
   onOpenSessions?: () => void;
   onOpenPath?: (path: string) => void;
   onCopyText?: (text: string) => boolean | Promise<boolean>;
+  onReadClipboard?: () => ClipboardPaste | undefined | Promise<ClipboardPaste | undefined>;
   onKeybinding?: (key: string) => void;
   renderer?: CliRenderer;
 }
@@ -153,6 +156,12 @@ function MessageBody(props: {
         {messageRoleLabel(props.message.role)}
         {props.message.streaming ? "  ◐" : ""}
       </text>
+      <Show when={(props.message.imageCount ?? 0) > 0}>
+        <text fg={COLORS.muted}>
+          image · {props.message.imageCount} attachment
+          {props.message.imageCount === 1 ? "" : "s"}
+        </text>
+      </Show>
       <Show when={props.message.thinking}>
         {(thinking: () => string) => (
           <box flexDirection="column">
@@ -1026,6 +1035,8 @@ export function Root(props: RootProps) {
   const [state, setState] = createSignal(props.store.snapshot);
   const [composerRows, setComposerRows] = createSignal(1);
   const [composerText, setComposerText] = createSignal("");
+  const [pendingImages, setPendingImages] = createSignal<readonly ImageContent[]>([]);
+  const [readingClipboard, setReadingClipboard] = createSignal(false);
   const [slashSelectedIndex, setSlashSelectedIndex] = createSignal(0);
   const [slashDismissed, setSlashDismissed] = createSignal(false);
   const [historyLimit, setHistoryLimit] = createSignal(100);
@@ -1144,20 +1155,32 @@ export function Root(props: RootProps) {
     setSlashDismissed(true);
     composer.focus();
   };
-
   const updateComposerRows = (): void => {
     if (disposed || !composer) return;
-    setComposerRows(Math.min(6, Math.max(1, composer.editorView.getTotalVirtualLineCount())));
+    setComposerRows(
+      composer.plainText.length === 0
+        ? 1
+        : Math.min(6, Math.max(1, composer.editorView.getTotalVirtualLineCount())),
+    );
   };
 
   onResize(() => queueMicrotask(updateComposerRows));
 
-  const restoreSubmittedDraft = (value: string, submissionId: number): void => {
-    if (!composer || submissionId !== latestSubmissionId || composer.plainText.length > 0) return;
-    composer.setText(value);
-    composer.cursorOffset = value.length;
-    updateComposerRows();
-    setComposerText(value);
+  const restoreSubmittedDraft = (
+    value: string,
+    images: readonly ImageContent[],
+    submissionId: number,
+  ): void => {
+    if (!composer || submissionId !== latestSubmissionId) return;
+    if (composer.plainText.length === 0 && value.length > 0) {
+      composer.setText(value);
+      composer.cursorOffset = value.length;
+      updateComposerRows();
+      setComposerText(value);
+    }
+    if (images.length > 0) {
+      setPendingImages((current) => [...images, ...current]);
+    }
   };
 
   const focusComposerWithoutOverlay = (): void => {
@@ -1176,19 +1199,22 @@ export function Root(props: RootProps) {
     if (!composer) return;
     const draft = composer.plainText;
     const value = draft.trim();
-    if (!value) return;
+    const images = value.startsWith("/") ? [] : [...pendingImages()];
+    if (!value && images.length === 0) return;
     const submissionId = ++latestSubmissionId;
     setSlashDismissed(true);
     props.store.clearNotice();
     composer.clear();
+    if (images.length > 0) setPendingImages([]);
     setComposerRows(1);
+    queueMicrotask(updateComposerRows);
     setComposerText("");
 
     let result: boolean | Promise<boolean>;
     try {
-      result = props.onSubmit(value);
+      result = props.onSubmit(value, images);
     } catch (error) {
-      restoreSubmittedDraft(draft, submissionId);
+      restoreSubmittedDraft(draft, images, submissionId);
       const message = error instanceof Error ? error.message : String(error);
       props.store.update({ status: "error", notice: redactSecrets(message) });
       focusComposerWithoutOverlay();
@@ -1197,10 +1223,10 @@ export function Root(props: RootProps) {
 
     void Promise.resolve(result)
       .then((accepted) => {
-        if (!accepted) restoreSubmittedDraft(draft, submissionId);
+        if (!accepted) restoreSubmittedDraft(draft, images, submissionId);
       })
       .catch((error: unknown) => {
-        restoreSubmittedDraft(draft, submissionId);
+        restoreSubmittedDraft(draft, images, submissionId);
         const message = error instanceof Error ? error.message : String(error);
         props.store.update({ status: "error", notice: redactSecrets(message) });
       })
@@ -1250,6 +1276,55 @@ export function Root(props: RootProps) {
       });
     });
     return true;
+  };
+
+  const pasteClipboard = (): void => {
+    if (readingClipboard()) return;
+    const readClipboard = props.onReadClipboard;
+    if (!readClipboard) {
+      props.store.update({
+        status: "clipboard unavailable",
+        notice: "System clipboard access is unavailable.",
+      });
+      return;
+    }
+    setReadingClipboard(true);
+    props.store.update({ status: "reading clipboard" });
+    void (async () => {
+      try {
+        const paste = await readClipboard();
+        if (disposed) return;
+        if (!paste) {
+          props.store.update({
+            status: "clipboard empty",
+            notice: "The clipboard has no supported image or text content.",
+          });
+        } else if (paste.type === "image") {
+          props.store.clearNotice();
+          setPendingImages((current) => {
+            const next = [...current, paste];
+            props.store.update({
+              status: `${next.length} image${next.length === 1 ? "" : "s"} attached`,
+            });
+            return next;
+          });
+        } else {
+          props.store.clearNotice();
+          composer?.insertText(paste.text);
+          updateComposerRows();
+          props.store.update({ status: "clipboard text pasted" });
+        }
+      } catch (error) {
+        if (disposed) return;
+        const message = error instanceof Error ? error.message : String(error);
+        props.store.update({ status: "clipboard failed", notice: redactSecrets(message) });
+      } finally {
+        if (!disposed) {
+          setReadingClipboard(false);
+          focusComposerWithoutOverlay();
+        }
+      }
+    })();
   };
 
   useKeyboard((key) => {
@@ -1358,6 +1433,15 @@ export function Root(props: RootProps) {
       }
       return;
     }
+    if (
+      key.name === "v" &&
+      (key.ctrl || key.meta || (process.platform === "win32" && key.option))
+    ) {
+      key.preventDefault();
+      key.stopPropagation();
+      pasteClipboard();
+      return;
+    }
     if (key.name === "pageup" && revealOlderMessages()) {
       key.preventDefault();
       key.stopPropagation();
@@ -1380,7 +1464,9 @@ export function Root(props: RootProps) {
       composer?.clear();
       setComposerRows(1);
       setComposerText("");
+      setPendingImages([]);
       setSlashDismissed(true);
+      queueMicrotask(updateComposerRows);
       return;
     }
     if (key.ctrl && key.name === "p") {
@@ -1517,6 +1603,16 @@ export function Root(props: RootProps) {
         </box>
       </Show>
 
+      <Show when={pendingImages().length > 0 || readingClipboard()}>
+        <box height={1} flexShrink={0} paddingX={2} width="100%">
+          <text fg={palette().accent} height={1} wrapMode="none" truncate>
+            {readingClipboard()
+              ? "reading clipboard…"
+              : `${pendingImages().length} image${pendingImages().length === 1 ? "" : "s"} attached · Ctrl+C clears`}
+          </text>
+        </box>
+      </Show>
+
       <Show
         when={
           !state().auth &&
@@ -1565,7 +1661,7 @@ export function Root(props: RootProps) {
           flexGrow={1}
           height={composerRows()}
           keyBindings={COMPOSER_BINDINGS}
-          placeholder="Send a message or /help · Ctrl+J for newline"
+          placeholder="Send a message or /help · Ctrl+V paste image · Ctrl+J newline"
           placeholderColor={palette().muted}
           textColor={palette().text}
           backgroundColor={palette().background}

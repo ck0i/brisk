@@ -283,6 +283,23 @@ describe("AgentLoop streaming and tools", () => {
     await loop.submit("empty is valid");
     expect(loop.messages.at(-1)).toEqual({ role: "assistant", content: "", toolCalls: [] });
   });
+
+  test("accepts image-only turns and preserves attachments in provider history", async () => {
+    const provider = new FakeProvider([{ text: "I can see it" }]);
+    const loop = new AgentLoop({ provider, model: "fake" });
+    const image = {
+      type: "image" as const,
+      data: "iVBORw==",
+      mimeType: "image/png",
+    };
+
+    await loop.submit("", [image]);
+
+    expect(provider.requests[0]?.messages).toEqual([
+      { role: "user", content: "", images: [image] },
+    ]);
+    expect(loop.messages[0]).toEqual({ role: "user", content: "", images: [image] });
+  });
 });
 
 describe("AgentLoop failures and retries", () => {
@@ -332,6 +349,7 @@ describe("AgentLoop failures and retries", () => {
   test("retries unhandled and duplicate-response failures", async () => {
     const provider = new FakeProvider([
       {
+        text: "stale partial response",
         error: {
           kind: "unknown",
           message: "Provider returned a duplicate response",

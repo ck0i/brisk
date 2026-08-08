@@ -33,18 +33,21 @@ Slash commands remain available while the main agent runs. Model and effort chan
 
 ## Keybindings
 
-| Key                        | Action                                                                         |
-| -------------------------- | ------------------------------------------------------------------------------ |
-| `Enter`                    | Submit (steers while busy)                                                     |
-| `Shift+Enter`, `Ctrl+J`, … | Newline                                                                        |
-| `Esc`                      | Abort active work                                                              |
-| `Ctrl+C`, `Ctrl+Shift+C`   | Copy highlighted TUI text; Ctrl+C clears the composer when nothing is selected |
-| `Ctrl+D`                   | Exit                                                                           |
-| `Ctrl+P`                   | Open the model picker; type to fuzzy-search provider and model names           |
-| `Ctrl+O`                   | Session picker                                                                 |
-| `A` / `S` / `D`            | Approve once / session / deny                                                  |
+| Key                           | Action                                                                |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `Enter`                       | Submit (steers while busy)                                            |
+| `Shift+Enter`, `Ctrl+J`, …    | Newline                                                               |
+| `Ctrl+V` (`Alt+V` on Windows) | Attach a clipboard image; falls back to pasting clipboard text        |
+| `Esc`                         | Abort active work                                                     |
+| `Ctrl+C`, `Ctrl+Shift+C`      | Copy highlighted TUI text; Ctrl+C clears the composer and attachments |
+| `Ctrl+D`                      | Exit                                                                  |
+| `Ctrl+P`                      | Open the model picker; type to fuzzy-search provider and model names  |
+| `Ctrl+O`                      | Session picker                                                        |
+| `A` / `S` / `D`               | Approve once / session / deny                                         |
 
 Highlighted text copies through OSC 52 when supported, then falls back to `wl-copy`, `xclip`, `xsel`, `pbcopy`, or `clip.exe` when available.
+
+Clipboard images are attached directly to the next user message and persisted with the session. Use a model whose catalog advertises image input; text-only models omit image blocks. Brisk accepts images up to 20 MiB.
 
 Edit previews show each target as a clickable path. Hold Ctrl and click a path to open it. Brisk uses `BRISK_EDITOR`, then `VISUAL`, then `EDITOR`; values may include arguments such as `code --wait`. Without one, it uses the platform file opener.
 

@@ -156,6 +156,7 @@ export function sessionInputForEvent(event: AgentEvent): SessionEntryInput | und
         retryable: event.error.retryable,
       };
     case "response_end":
+    case "response_retry":
     case "tool_execution_start":
     case "tool_execution_output":
     case "tool_execution_preview":

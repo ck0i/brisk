@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { lstat } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
 import type { JsonValue } from "../core/messages.ts";
 import type { JsonSchema } from "../providers/types.ts";
 import type { ToolDefinition } from "./registry.ts";
@@ -98,24 +99,24 @@ export async function searchWorkspace(
   options: SearchOptions = {},
 ): Promise<SearchResult> {
   validateSearchInput(input);
-  const location = await resolveWorkspacePath(workspace, input.path ?? ".");
+  const prepared = await prepareSearch(workspace, input);
   throwIfAborted(options.signal);
   const rgPath = options.forceFallback === true ? undefined : findRipgrep(options.rgPath ?? "rg");
   if (rgPath) {
     return await searchWithRipgrep(
-      location.workspace,
-      location.relative,
+      prepared.location.workspace,
+      prepared.location.relative,
       rgPath,
-      input,
+      prepared.input,
       options,
-      location.insideWorkspace,
+      prepared.location.insideWorkspace,
     );
   }
   return await searchWithFallback(
-    location.workspace,
-    location.path,
-    location.insideWorkspace ? location.workspace : location.path,
-    input,
+    prepared.location.workspace,
+    prepared.location.path,
+    prepared.location.insideWorkspace ? prepared.location.workspace : prepared.location.path,
+    prepared.input,
     options,
   );
 }
@@ -145,7 +146,7 @@ export function createSearchTool(
   return {
     name: "search",
     description:
-      "Search text with ripgrep and a Bun filesystem fallback. Relative paths use the workspace; absolute paths may target any directory.",
+      'Search text with ripgrep and a Bun filesystem fallback. `path` must be a directory. To search one file, pass its parent directory and use `globs: ["filename.rs"]`. Relative paths use the workspace; absolute paths may target any directory.',
     inputSchema: SEARCH_SCHEMA,
     readOnly: true,
     parallelSafe: true,
@@ -506,7 +507,11 @@ const SEARCH_SCHEMA = {
   type: "object",
   properties: {
     pattern: { type: "string", minLength: 1 },
-    path: { type: "string" },
+    path: {
+      type: "string",
+      description:
+        '`path` must be a directory. To search one file, pass its parent directory and use `globs: ["filename.rs"]`.',
+    },
     regex: { type: "boolean" },
     globs: { type: "array", items: { type: "string", minLength: 1 } },
     hidden: { type: "boolean" },
@@ -560,6 +565,44 @@ function validateSearchInput(input: SearchInput): void {
     if (glob.length === 0) throw new Error("Search globs cannot be empty");
   }
   if (input.regex === true) new RegExp(input.pattern, "u");
+}
+
+interface PreparedSearch {
+  readonly input: SearchInput;
+  readonly location: Awaited<ReturnType<typeof resolveWorkspacePath>>;
+}
+
+async function prepareSearch(workspace: string, input: SearchInput): Promise<PreparedSearch> {
+  const authoredPath = input.path ?? ".";
+  const location = await resolveWorkspacePath(workspace, authoredPath, false);
+  const entry = await lstat(location.path);
+  if (entry.isDirectory()) return { input, location };
+
+  const directory = dirname(location.path);
+  const filename = basename(location.path);
+  const normalizedPath = stableRelative(location.workspace, directory);
+  if (!entry.isFile()) {
+    throw new Error(
+      `search.path must be a directory. Did you mean path=${JSON.stringify(normalizedPath)}, globs=[${JSON.stringify(filename)}]?`,
+    );
+  }
+
+  return {
+    input: {
+      ...input,
+      path: normalizedPath,
+      globs: [escapeGlob(filename)],
+    },
+    location: {
+      ...location,
+      path: directory,
+      relative: normalizedPath,
+    },
+  };
+}
+
+function escapeGlob(value: string): string {
+  return value.replaceAll("\\", "\\\\").replace(/([*?[\]{}!])/g, "\\$1");
 }
 
 function findRipgrep(command: string): string | undefined {

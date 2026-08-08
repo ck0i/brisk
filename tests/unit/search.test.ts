@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildRipgrepArguments,
+  createSearchTool,
   searchWorkspace,
   type SearchStreamEvent,
 } from "../../src/tools/search.ts";
@@ -38,6 +40,16 @@ describe("searchWorkspace", () => {
     expect(arguments_).toContain("x; echo not-a-command");
     expect(arguments_.slice(-2)).toEqual(["--", "src"]);
     expect(arguments_.filter((argument) => argument === "--glob")).toHaveLength(22);
+  });
+
+  test("describes the directory-only path shape and single-file form", () => {
+    const tool = createSearchTool(".");
+    expect(tool.description).toContain(
+      '`path` must be a directory. To search one file, pass its parent directory and use `globs: ["filename.rs"]`.',
+    );
+    expect(tool.inputSchema.properties?.path?.description).toBe(
+      '`path` must be a directory. To search one file, pass its parent directory and use `globs: ["filename.rs"]`.',
+    );
   });
 
   test("fallback supports regex, literal, globs, hidden files, ignores, context, and limits", async () => {
@@ -86,6 +98,50 @@ describe("searchWorkspace", () => {
     expect(visible.matches.every((match) => !match.path.startsWith("./"))).toBe(true);
   });
 
+  test("normalizes a regular-file path to a single-file fallback search", async () => {
+    const workspace = await createSearchWorkspace();
+    const selected = join(workspace, "src", "[selected].ts");
+    await writeFile(selected, "needle selected\n");
+    await writeFile(join(workspace, "src", "s.ts"), "needle sibling\n");
+
+    const result = await searchWorkspace(
+      workspace,
+      { pattern: "needle", path: "src/[selected].ts" },
+      { forceFallback: true },
+    );
+
+    expect(result.matches.map((match) => match.path)).toEqual(["src/[selected].ts"]);
+  });
+
+  test.skipIf(process.platform === "win32")(
+    "returns a corrective error for a path that is neither a directory nor a regular file",
+    async () => {
+      const workspace = await temporaryDirectory();
+      const socketPath = join(workspace, "search.sock");
+      const server = createServer();
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(socketPath, resolve);
+      });
+
+      try {
+        await expect(
+          searchWorkspace(
+            workspace,
+            { pattern: "needle", path: socketPath },
+            { forceFallback: true },
+          ),
+        ).rejects.toThrow(
+          'search.path must be a directory. Did you mean path=".", globs=["search.sock"]?',
+        );
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()));
+        });
+      }
+    },
+  );
+
   test("searches authored absolute path roots and returns absolute matches", async () => {
     const workspace = await createSearchWorkspace();
     const outside = await createSearchWorkspace();
@@ -121,6 +177,16 @@ describe("searchWorkspace", () => {
   test.skipIf(Bun.which("rg") === null)("uses ripgrep for a real ignored-file search", async () => {
     const workspace = await createSearchWorkspace();
     const result = await searchWorkspace(workspace, { pattern: "needle", globs: ["*.ts"] });
+    expect(result.backend).toBe("rg");
+    expect(result.matches.map((match) => match.path)).toEqual(["src/visible.ts"]);
+  });
+  test.skipIf(Bun.which("rg") === null)("uses ripgrep for a regular-file path", async () => {
+    const workspace = await createSearchWorkspace();
+    const result = await searchWorkspace(workspace, {
+      pattern: "needle",
+      path: join(workspace, "src", "visible.ts"),
+    });
+
     expect(result.backend).toBe("rg");
     expect(result.matches.map((match) => match.path)).toEqual(["src/visible.ts"]);
   });

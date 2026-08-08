@@ -8,12 +8,12 @@ import {
   type ScrollBoxRenderable,
   type TextareaRenderable,
 } from "@opentui/core";
-import { onResize, useKeyboard, useRenderer } from "@opentui/solid";
+import { onResize, useKeyboard, usePaste, useRenderer } from "@opentui/solid";
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import type { ImageContent } from "../core/messages.ts";
 import { redactSecrets } from "../providers/secret-redaction.ts";
-import type { ClipboardPaste } from "./clipboard.ts";
+import { clipboardImage, type ClipboardPaste } from "./clipboard.ts";
 import { diffSectionHeight, splitDiffPreview } from "./diff-presentation.ts";
 import { rankPickerOptions } from "./picker-search.ts";
 import { BUILT_IN_SLASH_COMMANDS, type SlashCommand } from "./slash-commands.ts";
@@ -1056,6 +1056,8 @@ export function Root(props: RootProps) {
   let conversation: ScrollBoxRenderable | undefined;
   let suppressSlashDismissalReset = false;
   let latestSubmissionId = 0;
+  let clipboardGeneration = 0;
+  let submitAfterClipboardRead = false;
   let disposed = false;
   let overlayWasVisible =
     state().approval !== undefined ||
@@ -1278,6 +1280,23 @@ export function Root(props: RootProps) {
     return true;
   };
 
+  const applyClipboardPaste = (paste: ClipboardPaste): void => {
+    props.store.clearNotice();
+    if (paste.type === "image") {
+      setPendingImages((current) => {
+        const next = [...current, paste];
+        props.store.update({
+          status: `${next.length} image${next.length === 1 ? "" : "s"} attached`,
+        });
+        return next;
+      });
+      return;
+    }
+    composer?.insertText(paste.text);
+    updateComposerRows();
+    props.store.update({ status: "clipboard text pasted" });
+  };
+
   const pasteClipboard = (): void => {
     if (readingClipboard()) return;
     const readClipboard = props.onReadClipboard;
@@ -1288,44 +1307,55 @@ export function Root(props: RootProps) {
       });
       return;
     }
+    const generation = ++clipboardGeneration;
     setReadingClipboard(true);
     props.store.update({ status: "reading clipboard" });
     void (async () => {
       try {
         const paste = await readClipboard();
-        if (disposed) return;
+        if (disposed || generation !== clipboardGeneration) return;
         if (!paste) {
           props.store.update({
             status: "clipboard empty",
             notice: "The clipboard has no supported image or text content.",
           });
-        } else if (paste.type === "image") {
-          props.store.clearNotice();
-          setPendingImages((current) => {
-            const next = [...current, paste];
-            props.store.update({
-              status: `${next.length} image${next.length === 1 ? "" : "s"} attached`,
-            });
-            return next;
-          });
         } else {
-          props.store.clearNotice();
-          composer?.insertText(paste.text);
-          updateComposerRows();
-          props.store.update({ status: "clipboard text pasted" });
+          applyClipboardPaste(paste);
         }
       } catch (error) {
-        if (disposed) return;
+        if (disposed || generation !== clipboardGeneration) return;
         const message = error instanceof Error ? error.message : String(error);
         props.store.update({ status: "clipboard failed", notice: redactSecrets(message) });
       } finally {
-        if (!disposed) {
+        if (!disposed && generation === clipboardGeneration) {
           setReadingClipboard(false);
           focusComposerWithoutOverlay();
+          if (submitAfterClipboardRead) {
+            submitAfterClipboardRead = false;
+            queueMicrotask(submit);
+          }
         }
       }
     })();
   };
+
+  usePaste((event) => {
+    const mimeType = event.metadata?.mimeType?.trim().toLowerCase();
+    const isImage = mimeType?.startsWith("image/") === true;
+    if (!isImage && event.bytes.length > 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isImage || event.bytes.length === 0 || !mimeType) {
+      pasteClipboard();
+      return;
+    }
+    try {
+      applyClipboardPaste(clipboardImage(event.bytes, mimeType));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      props.store.update({ status: "clipboard failed", notice: redactSecrets(message) });
+    }
+  });
 
   useKeyboard((key) => {
     if (key.ctrl && key.name === "d") {
@@ -1434,8 +1464,22 @@ export function Root(props: RootProps) {
       return;
     }
     if (
+      readingClipboard() &&
+      key.name === "return" &&
+      !key.shift &&
+      !key.ctrl &&
+      !key.meta &&
+      !key.option &&
+      key.super !== true
+    ) {
+      key.preventDefault();
+      key.stopPropagation();
+      submitAfterClipboardRead = true;
+      return;
+    }
+    if (
       key.name === "v" &&
-      (key.ctrl || key.meta || (process.platform === "win32" && key.option))
+      (key.ctrl || key.meta || key.super === true || (process.platform === "win32" && key.option))
     ) {
       key.preventDefault();
       key.stopPropagation();
@@ -1461,6 +1505,9 @@ export function Root(props: RootProps) {
     if (key.ctrl && key.name === "c") {
       key.preventDefault();
       key.stopPropagation();
+      clipboardGeneration += 1;
+      submitAfterClipboardRead = false;
+      setReadingClipboard(false);
       composer?.clear();
       setComposerRows(1);
       setComposerText("");

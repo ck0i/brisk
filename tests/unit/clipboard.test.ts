@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   clipboardCommand,
+  clipboardImage,
   clipboardReadCommand,
   readSystemClipboard,
 } from "../../src/ui/clipboard.ts";
@@ -64,6 +65,11 @@ describe("system clipboard fallback", () => {
       data: "iVBORw==",
       mimeType: "image/png",
     });
+  });
+
+  test("rejects empty and non-image clipboard payloads", () => {
+    expect(() => clipboardImage(new Uint8Array(), "image/png")).toThrow("empty image");
+    expect(() => clipboardImage(new Uint8Array([1]), "text/plain")).toThrow("invalid image type");
   });
 
   test("falls back to clipboard text when there is no image", async () => {

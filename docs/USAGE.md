@@ -33,17 +33,17 @@ Slash commands remain available while the main agent runs. Model and effort chan
 
 ## Keybindings
 
-| Key                           | Action                                                                |
-| ----------------------------- | --------------------------------------------------------------------- |
-| `Enter`                       | Submit (steers while busy)                                            |
-| `Shift+Enter`, `Ctrl+J`, …    | Newline                                                               |
-| `Ctrl+V` (`Alt+V` on Windows) | Attach a clipboard image; falls back to pasting clipboard text        |
-| `Esc`                         | Abort active work                                                     |
-| `Ctrl+C`, `Ctrl+Shift+C`      | Copy highlighted TUI text; Ctrl+C clears the composer and attachments |
-| `Ctrl+D`                      | Exit                                                                  |
-| `Ctrl+P`                      | Open the model picker; type to fuzzy-search provider and model names  |
-| `Ctrl+O`                      | Session picker                                                        |
-| `A` / `S` / `D`               | Approve once / session / deny                                         |
+| Key                                             | Action                                                                |
+| ----------------------------------------------- | --------------------------------------------------------------------- |
+| `Enter`                                         | Submit (steers while busy)                                            |
+| `Shift+Enter`, `Ctrl+J`, …                      | Newline                                                               |
+| `Ctrl+V` (`Cmd+V` on macOS, `Alt+V` on Windows) | Attach a clipboard image; falls back to pasting clipboard text        |
+| `Esc`                                           | Abort active work                                                     |
+| `Ctrl+C`, `Ctrl+Shift+C`                        | Copy highlighted TUI text; Ctrl+C clears the composer and attachments |
+| `Ctrl+D`                                        | Exit                                                                  |
+| `Ctrl+P`                                        | Open the model picker; type to fuzzy-search provider and model names  |
+| `Ctrl+O`                                        | Session picker                                                        |
+| `A` / `S` / `D`                                 | Approve once / session / deny                                         |
 
 Highlighted text copies through OSC 52 when supported, then falls back to `wl-copy`, `xclip`, `xsel`, `pbcopy`, or `clip.exe` when available.
 

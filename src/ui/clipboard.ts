@@ -4,10 +4,11 @@ import type { ImageContent } from "../core/messages.ts";
 
 const MAX_CLIPBOARD_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_CLIPBOARD_TEXT_BYTES = 10 * 1024 * 1024;
+const CLIPBOARD_READ_TIMEOUT_MS = 3_000;
 
 export type ClipboardPaste = ImageContent | { readonly type: "text"; readonly text: string };
 
-interface NativeClipboardImage {
+export interface NativeClipboardImage {
   readonly data: Uint8Array;
   readonly mimeType: string;
 }
@@ -76,7 +77,7 @@ export async function readSystemClipboard(
   } catch {
     // Native clipboard access is optional; text helpers remain a useful fallback.
   }
-  if (image) return imagePaste(image);
+  if (image) return clipboardImage(image.data, image.mimeType);
 
   const command = clipboardReadCommand(options);
   if (!command) return undefined;
@@ -86,20 +87,20 @@ export async function readSystemClipboard(
   return text.length === 0 ? undefined : { type: "text", text };
 }
 
-function imagePaste(image: NativeClipboardImage): ImageContent {
-  if (!(image.data instanceof Uint8Array) || image.data.length === 0) {
+export function clipboardImage(data: Uint8Array, rawMimeType: string): ImageContent {
+  if (!(data instanceof Uint8Array) || data.length === 0) {
     throw new Error("Clipboard returned an empty image.");
   }
-  if (image.data.length > MAX_CLIPBOARD_IMAGE_BYTES) {
+  if (data.length > MAX_CLIPBOARD_IMAGE_BYTES) {
     throw new Error("Clipboard image is larger than Brisk's 20 MiB attachment limit.");
   }
-  const mimeType = image.mimeType.trim().toLowerCase();
+  const mimeType = rawMimeType.trim().toLowerCase();
   if (!mimeType.startsWith("image/")) {
     throw new Error(`Clipboard returned an invalid image type: ${mimeType || "unknown"}.`);
   }
   return {
     type: "image",
-    data: Buffer.from(image.data).toString("base64"),
+    data: Buffer.from(data).toString("base64"),
     mimeType,
   };
 }
@@ -111,11 +112,42 @@ async function runClipboardRead(command: readonly string[]): Promise<Uint8Array 
       stdout: "pipe",
       stderr: "ignore",
     });
-    const bytes = new Uint8Array(await new Response(child.stdout).arrayBuffer());
-    return (await child.exited) === 0 ? bytes : undefined;
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill();
+    }, CLIPBOARD_READ_TIMEOUT_MS);
+    try {
+      const bytes = await readBounded(child.stdout, MAX_CLIPBOARD_TEXT_BYTES);
+      if (!bytes) child.kill();
+      const status = await child.exited;
+      return !timedOut && status === 0 ? bytes : undefined;
+    } finally {
+      clearTimeout(timer);
+    }
   } catch {
     return undefined;
   }
+}
+
+async function readBounded(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes: number,
+): Promise<Uint8Array | undefined> {
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for await (const chunk of stream) {
+    total += chunk.length;
+    if (total > maxBytes) return undefined;
+    chunks.push(chunk);
+  }
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return output;
 }
 
 export async function copyTextToSystemClipboard(

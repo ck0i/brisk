@@ -123,7 +123,7 @@ test("first render focuses the multiline composer and accepts a large paste", as
   }
 });
 
-test("Ctrl+V attaches clipboard images and submits them with the composer text", async () => {
+test("Ctrl+V and Cmd+V attach multiple clipboard images to the composer", async () => {
   const store = new UiStore("fixture");
   const submissions: Array<{
     value: string;
@@ -156,17 +156,55 @@ test("Ctrl+V attaches clipboard images and submits them with the composer text",
     await setup.renderOnce();
     setup.mockInput.pressKey("v", { ctrl: true });
     await setup.waitForFrame((frame) => frame.includes("1 image attached · Ctrl+C clears"));
-    await setup.mockInput.typeText("describe this image");
+    setup.mockInput.pressKey("\u001b[118;9u");
+    await setup.waitForFrame((frame) => frame.includes("2 images attached · Ctrl+C clears"));
+    await setup.mockInput.typeText("describe these images");
     setup.mockInput.pressEnter();
     await setup.waitFor(() => submissions.length === 1);
 
     expect(submissions).toEqual([
       {
-        value: "describe this image",
-        images: [{ type: "image", data: "iVBORw==", mimeType: "image/png" }],
+        value: "describe these images",
+        images: [
+          { type: "image", data: "iVBORw==", mimeType: "image/png" },
+          { type: "image", data: "iVBORw==", mimeType: "image/png" },
+        ],
       },
     ]);
     await setup.waitForFrame((frame) => !frame.includes("image attached · Ctrl+C clears"));
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("an empty bracketed paste followed by Enter waits for the clipboard image", async () => {
+  const store = new UiStore("fixture");
+  const submissions: Array<{ value: string; imageCount: number }> = [];
+  const setup = await testRender(
+    () => (
+      <Root
+        store={store}
+        onSubmit={(value, images) => {
+          submissions.push({ value, imageCount: images?.length ?? 0 });
+          return true;
+        }}
+        onAbort={() => {}}
+        onExit={() => {}}
+        onReadClipboard={async () => {
+          await Bun.sleep(10);
+          return { type: "image", data: "iVBORw==", mimeType: "image/png" };
+        }}
+      />
+    ),
+    { width: 90, height: 24 },
+  );
+  try {
+    await setup.renderOnce();
+    await setup.mockInput.pasteBracketedText("");
+    setup.mockInput.pressEnter();
+    await setup.waitFor(() => submissions.length === 1);
+
+    expect(submissions).toEqual([{ value: "", imageCount: 1 }]);
   } finally {
     setup.renderer.destroy();
   }

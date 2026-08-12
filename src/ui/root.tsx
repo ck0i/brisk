@@ -9,7 +9,7 @@ import {
   type TextareaRenderable,
 } from "@opentui/core";
 import { onResize, useKeyboard, usePaste, useRenderer } from "@opentui/solid";
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
 import type { ImageContent } from "../core/messages.ts";
 import { redactSecrets } from "../providers/secret-redaction.ts";
@@ -179,9 +179,11 @@ function MessageBody(props: {
       </Show>
       <Show when={props.message.content.length > 0}>
         <markdown
+          id={`message-content-${props.message.id}`}
           content={props.message.content}
           syntaxStyle={props.syntaxStyle}
           streaming={props.message.streaming ?? false}
+          internalBlockMode="top-level"
           conceal
           concealCode={false}
           fg={COLORS.text}
@@ -1024,16 +1026,16 @@ function Conversation(props: {
   onCleanup(() => syntaxStyle.destroy());
 
   return (
-    <For each={props.messages}>
+    <Index each={props.messages}>
       {(message) => (
         <MessageBody
-          message={message}
+          message={message()}
           syntaxStyle={syntaxStyle}
           showThinking={props.showThinking}
           {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
         />
       )}
-    </For>
+    </Index>
   );
 }
 

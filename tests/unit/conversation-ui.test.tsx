@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { ScrollBoxRenderable, TextAttributes, type BaseRenderable } from "@opentui/core";
+import {
+  MarkdownRenderable,
+  ScrollBoxRenderable,
+  TextAttributes,
+  type BaseRenderable,
+} from "@opentui/core";
 import { testRender } from "@opentui/solid";
 
 import { UiAuthController } from "../../src/ui/auth-controller.ts";
@@ -27,6 +32,51 @@ test("conversation labels use User and Agent", async () => {
     expect(frame).toContain("Agent");
     expect(frame).not.toContain("you");
     expect(frame).not.toContain("assistant");
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("streaming assistant lists keep the markdown renderable and visible bullets", async () => {
+  const store = new UiStore("fixture");
+  store.addMessage({
+    id: "list-stream",
+    role: "assistant",
+    content: "",
+    streaming: true,
+  });
+  const setup = await renderRoot(store, 80, 24);
+  try {
+    await setup.renderOnce();
+    const chunks = [
+      "Here is the plan:\n\n",
+      "- First complete item\n",
+      "- Second complete item\n",
+      "- Third complete item\n",
+      "\nNext paragraph after the list.",
+    ];
+    let markdown: MarkdownRenderable | undefined;
+    const frames: string[] = [];
+    for (const chunk of chunks) {
+      store.appendMessageText("list-stream", chunk);
+      await setup.renderOnce();
+      const current = findMarkdown(setup.renderer.root);
+      if (markdown !== undefined && current !== markdown) {
+        throw new Error("markdown renderable was remounted during streaming");
+      }
+      markdown = current;
+      const frame = setup.captureCharFrame();
+      frames.push(frame);
+      if (store.snapshot.messages[0]?.content.includes("First complete item")) {
+        expect(frame).toContain("First complete item");
+      }
+      if (store.snapshot.messages[0]?.content.includes("Second complete item")) {
+        expect(frame).toContain("Second complete item");
+      }
+    }
+    expect(markdown).toBeInstanceOf(MarkdownRenderable);
+    expect(frames.at(-1)).toContain("Third complete item");
+    expect(frames.at(-1)).toContain("Next paragraph after the list.");
   } finally {
     setup.renderer.destroy();
   }
@@ -701,6 +751,24 @@ test("long conversations mount a bounded window and PageUp expands it", async ()
     setup.renderer.destroy();
   }
 });
+
+function findMarkdown(root: BaseRenderable): MarkdownRenderable {
+  if (root instanceof MarkdownRenderable) return root;
+  for (const child of root.getChildren()) {
+    const found = findMarkdownOrUndefined(child);
+    if (found) return found;
+  }
+  throw new Error("Missing markdown renderable");
+}
+
+function findMarkdownOrUndefined(root: BaseRenderable): MarkdownRenderable | undefined {
+  if (root instanceof MarkdownRenderable) return root;
+  for (const child of root.getChildren()) {
+    const found = findMarkdownOrUndefined(child);
+    if (found) return found;
+  }
+  return undefined;
+}
 
 function findScrollBox(root: BaseRenderable): ScrollBoxRenderable {
   if (root instanceof ScrollBoxRenderable) return root;

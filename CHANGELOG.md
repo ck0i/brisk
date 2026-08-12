@@ -15,6 +15,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 
 ### Fixed
 
+- Keep streamed assistant markdown mounted across token updates so lists and other formatted blocks no longer flicker as the transcript grows.
 - Recover stale terminal synchronized-output state before mounting OpenTUI, preventing blank startup after an interrupted full-screen application.
 - Convert the configured whole-number compaction percentage to the context manager's ratio, preventing default startup initialization failure.
 - Prebuild the npm executable with the OpenTUI Solid transform so global package launches no longer depend on the current directory containing Brisk's `bunfig.toml`.

@@ -16,6 +16,7 @@ import { redactSecrets } from "../providers/secret-redaction.ts";
 import { clipboardImage, type ClipboardPaste } from "./clipboard.ts";
 import { diffSectionHeight, splitDiffPreview } from "./diff-presentation.ts";
 import { rankPickerOptions } from "./picker-search.ts";
+import { captureScrollbarDrags } from "./scrollbar-drag.ts";
 import { BUILT_IN_SLASH_COMMANDS, type SlashCommand } from "./slash-commands.ts";
 import type {
   UiAgentIndicator,
@@ -271,6 +272,7 @@ function ApprovalOverlay(props: {
   approval: UiApprovalPrompt;
   onOpenPath?: (path: string) => void;
 }) {
+  const renderer = useRenderer();
   return (
     <box
       position="absolute"
@@ -320,7 +322,11 @@ function ApprovalOverlay(props: {
         </For>
         <Show when={props.approval.diff}>
           {(diff: () => string) => (
-            <scrollbox height={12} width="100%">
+            <scrollbox
+              height={12}
+              width="100%"
+              ref={(node) => captureScrollbarDrags(node, renderer)}
+            >
               <For each={splitDiffPreview(diff())}>
                 {(section, index) => (
                   <>
@@ -559,6 +565,7 @@ function TextInputOverlay(props: { prompt: UiTextInputPrompt; store: UiStore }) 
 }
 
 function BtwOverlay(props: { btw: UiBtwState; store: UiStore }) {
+  const renderer = useRenderer();
   let input: InputRenderable | undefined;
   let transcript: ScrollBoxRenderable | undefined;
 
@@ -613,6 +620,7 @@ function BtwOverlay(props: { btw: UiBtwState; store: UiStore }) {
         <scrollbox
           ref={(node) => {
             transcript = node;
+            captureScrollbarDrags(node, renderer);
           }}
           flexGrow={1}
           width="100%"
@@ -1549,6 +1557,7 @@ export function Root(props: RootProps) {
         id="conversation-scroll"
         ref={(node) => {
           conversation = node;
+          captureScrollbarDrags(node, renderer);
         }}
         flexGrow={1}
         width="100%"

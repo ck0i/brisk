@@ -636,6 +636,38 @@ test("submission errors remain visible and preserve the composer draft", async (
   }
 });
 
+test("conversation scrollbar thumb keeps dragging after the pointer leaves the track", async () => {
+  const store = new UiStore("fixture");
+  for (let index = 0; index < 80; index += 1) {
+    store.addMessage({
+      id: `message-${index}`,
+      role: "system",
+      content: `history row ${index}\nextra line to force overflow`,
+    });
+  }
+  const setup = await renderRoot(store, 80, 22);
+  try {
+    await setup.renderOnce();
+    const scrollbox = findScrollBox(setup.renderer.root);
+    const slider = scrollbox.verticalScrollBar.slider;
+    expect(scrollbox.verticalScrollBar.visible).toBe(true);
+    expect(scrollbox.scrollHeight).toBeGreaterThan(scrollbox.verticalScrollBar.viewportSize);
+
+    const startY = slider.y + Math.max(1, slider.height - 2);
+    const endY = slider.y + 2;
+    await setup.mockMouse.pressDown(slider.x, startY);
+    await setup.flush();
+    const afterDown = scrollbox.scrollTop;
+    await setup.mockMouse.emitMouseEvent("drag", slider.x - 2, endY);
+    await setup.mockMouse.release(slider.x - 2, endY);
+    await setup.flush();
+
+    expect(afterDown - scrollbox.scrollTop).toBeGreaterThan(5);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("long conversations mount a bounded window and PageUp expands it", async () => {
   const store = new UiStore("fixture");
   for (let index = 0; index < 230; index += 1) {

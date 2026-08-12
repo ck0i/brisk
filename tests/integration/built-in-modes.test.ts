@@ -236,7 +236,11 @@ describe("first-class modes", () => {
 
     await goal.execute("Finish the verified task");
     await waitFor(
-      () => !loop.active && notices.includes("Goal completed. Automatic continuation stopped."),
+      () =>
+        !loop.active &&
+        notices.some((message) =>
+          message.startsWith("Goal completed. Automatic continuation stopped."),
+        ),
     );
 
     expect(goal.objective).toBeUndefined();
@@ -253,6 +257,97 @@ describe("first-class modes", () => {
       status: "completed",
       reason: "model",
     });
+
+    goal.detachAgent();
+    await session.close();
+  });
+
+  test("/goal resume restores the last completed or dropped goal", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-goal-resume-"));
+    roots.push(root);
+    const session = await SessionRuntime.initialize({
+      sessionsDir: join(root, "sessions"),
+      sessionIndexPath: join(root, "index.json"),
+      artifactsDir: join(root, "artifacts"),
+      workspace: root,
+      selectedProvider: "fake",
+      selectedModel: "model",
+    });
+    const provider = new FakeProvider([
+      {
+        toolCalls: [
+          {
+            id: "complete-goal",
+            name: "goal",
+            argumentChunks: ['{"op":"complete"}'],
+          },
+        ],
+      },
+      { text: "resumed after a premature complete" },
+      { text: "resumed after a drop" },
+    ]);
+    const tools = new ToolRegistry();
+    const notices: string[] = [];
+    let status: string | undefined;
+    const goal = new GoalRuntime({
+      session,
+      configuredMaxTurns: () => 0,
+      notify: (message) => notices.push(message),
+      setStatus: (value) => {
+        status = value;
+      },
+    });
+    tools.register(goal.tool);
+    const loop = new AgentLoop({
+      provider,
+      tools,
+      model: "fake/model",
+      dynamicSystemPrompt: () => goal.dynamicSystemPrompt(),
+      contextFilter: (messages) => goal.filterContext(messages),
+      stopWhen: () => goal.consumeStopRequested(),
+    });
+    session.attach(loop);
+    goal.attach(loop, async (prompt) => await loop.submitInternal(prompt, "goal-control"));
+
+    await goal.execute("resume");
+    expect(notices).toContain("No paused or previously finished goal is available.");
+
+    const objective = "Ship the feature the model marked complete too early.";
+    await goal.execute(objective);
+    await waitFor(
+      () =>
+        !loop.active &&
+        notices.some((message) =>
+          message.startsWith("Goal completed. Automatic continuation stopped."),
+        ),
+    );
+    expect(goal.objective).toBeUndefined();
+    expect(status).toBeUndefined();
+
+    await goal.execute("resume");
+    await waitFor(() => notices.some((message) => message.includes("0-turn continuation limit")));
+    expect(goal.objective).toBe(objective);
+    expect(goal.status).toBe("paused");
+    expect(status).toBe("goal paused");
+    expect(notices.some((message) => message.startsWith("Restored the last completed goal"))).toBe(
+      true,
+    );
+    expect(provider.requests[1]?.systemPrompt.join("\n")).toContain(JSON.stringify(objective));
+
+    await goal.execute("drop");
+    expect(goal.objective).toBeUndefined();
+    expect(notices).toContain("Goal dropped. Use /goal resume to restore it.");
+
+    await goal.execute("resume");
+    await waitFor(
+      () => notices.filter((message) => message.includes("0-turn continuation limit")).length >= 2,
+    );
+    expect(goal.objective).toBe(objective);
+    expect(goal.status).toBe("paused");
+    expect(notices.some((message) => message.startsWith("Restored the last dropped goal"))).toBe(
+      true,
+    );
+    expect(provider.requestCount).toBe(3);
 
     goal.detachAgent();
     await session.close();

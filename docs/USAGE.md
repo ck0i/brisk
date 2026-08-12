@@ -6,30 +6,30 @@ Policy presets (not OS sandboxes): `safe` prompts for writes and shell; `write` 
 
 ## Slash commands
 
-| Command                            | Action                                                                  |
-| ---------------------------------- | ----------------------------------------------------------------------- |
-| `/help`                            | Keys and commands                                                       |
-| `/model [provider/model]`          | Model selection, then effort                                            |
-| `/effort [subagent]`               | Main or subagent reasoning effort                                       |
-| `/loop [N]`, `status`, `stop`      | Repeat the next prompt `N` times, or indefinitely when `N` is omitted   |
-| `/goal <objective>`                | Start an autonomous, persistent session goal                            |
-| `/goal show`, `pause`, `resume`, … | Inspect or control the active goal (`drop` abandons it)                 |
-| `/btw <question>`                  | Open a private read-only side thread while the main agent keeps running |
-| `/login`, `/logout`                | OAuth in the TUI                                                        |
-| `/new`                             | New session in this workspace                                           |
-| `/sessions`, `/resume`             | Session picker (`Ctrl+O`)                                               |
-| `/compact`, `/context`             | Compaction control and token estimate                                   |
-| `/agents`                          | Child agents                                                            |
-| `/mcp [status, reload, add]`       | Manage local and remote MCP servers                                     |
-| `/cost`                            | Session cost                                                            |
-| `/settings`                        | Edit global runtime settings                                            |
-| `/reload`                          | Reload JSONC config                                                     |
-| `/clear`                           | Clear screen (transcript kept)                                          |
-| `/quit`                            | Exit                                                                    |
+| Command                            | Action                                                                       |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `/help`                            | Keys and commands                                                            |
+| `/model [provider/model]`          | Model selection, then effort                                                 |
+| `/effort [subagent]`               | Main or subagent reasoning effort                                            |
+| `/loop [N]`, `status`, `stop`      | Repeat the next prompt `N` times, or indefinitely when `N` is omitted        |
+| `/goal <objective>`                | Start an autonomous, persistent session goal                                 |
+| `/goal show`, `pause`, `resume`, … | Inspect or control the active goal (`resume` restores the last finished one) |
+| `/btw <question>`                  | Open a private read-only side thread while the main agent keeps running      |
+| `/login`, `/logout`                | OAuth in the TUI                                                             |
+| `/new`                             | New session in this workspace                                                |
+| `/sessions`, `/resume`             | Session picker (`Ctrl+O`)                                                    |
+| `/compact`, `/context`             | Compaction control and token estimate                                        |
+| `/agents`                          | Child agents                                                                 |
+| `/mcp [status, reload, add]`       | Manage local and remote MCP servers                                          |
+| `/cost`                            | Session cost                                                                 |
+| `/settings`                        | Edit global runtime settings                                                 |
+| `/reload`                          | Reload JSONC config                                                          |
+| `/clear`                           | Clear screen (transcript kept)                                               |
+| `/quit`                            | Exit                                                                         |
 
 Slash commands remain available while the main agent runs. Model and effort changes apply to the next provider request, and settings can be edited immediately. Commands that must replace session/runtime state (`/new`, session switching, `/reload`, and manual `/compact`) queue until the active run settles instead of requiring an abort.
 
-`/loop` captures the next accepted prompt and repeats it only after each full agent run settles; cancellation or provider failure stops the loop. `/goal` persists its full objective in the session, gives the model a `goal` completion tool, and automatically continues until completed, dropped, paused, or limited by `goalMaxTurns`. `/btw` copies a safe snapshot of the main context into an isolated side agent with only `read`, `search`, `find`, and `list`; its conversation is not inserted into the main transcript. Press `Esc` to close the BTW overlay.
+`/loop` captures the next accepted prompt and repeats it only after each full agent run settles; cancellation or provider failure stops the loop. `/goal` persists its full objective in the session, gives the model a `goal` completion tool, and automatically continues until completed, dropped, paused, or limited by `goalMaxTurns`. `/goal resume` continues a paused goal, or restores the last completed or dropped goal in the session. `/btw` copies a safe snapshot of the main context into an isolated side agent with only `read`, `search`, `find`, and `list`; its conversation is not inserted into the main transcript. Press `Esc` to close the BTW overlay.
 
 ## Keybindings
 

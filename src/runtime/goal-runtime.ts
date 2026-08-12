@@ -63,11 +63,7 @@ export class GoalRuntime {
   }
 
   restore(): void {
-    let latest: PersistedGoalState | undefined;
-    for (const entry of this.options.session.current.entries) {
-      if (entry.type !== "mode_state" || entry.key !== GOAL_STATE_KEY) continue;
-      latest = parseStoredGoal(entry.value) ?? latest;
-    }
+    const latest = this.latestPersistedGoal();
     this.goal =
       latest?.status === "active" || latest?.status === "paused"
         ? {
@@ -173,7 +169,12 @@ export class GoalRuntime {
       case "resume":
         if (!remainder) {
           if (!this.goal) {
-            this.options.notify("No paused goal is available.");
+            const latest = this.latestPersistedGoal();
+            if (latest?.status === "completed" || latest?.status === "dropped") {
+              await this.restoreFinishedGoal(latest);
+            } else {
+              this.options.notify("No paused or previously finished goal is available.");
+            }
             return;
           }
           if (this.goal.status === "paused") {
@@ -192,8 +193,9 @@ export class GoalRuntime {
         break;
       case "drop":
         if (!remainder) {
-          if (await this.finishGoal("dropped", "user")) this.options.notify("Goal dropped.");
-          else this.options.notify("No goal is set.");
+          if (await this.finishGoal("dropped", "user")) {
+            this.options.notify("Goal dropped. Use /goal resume to restore it.");
+          } else this.options.notify("No goal is set.");
           return;
         }
         break;
@@ -216,12 +218,35 @@ export class GoalRuntime {
       );
       return;
     }
+    const configuredLimit = this.options.configuredMaxTurns();
+    if (!(await this.activateGoal(objective, configuredLimit))) return;
+    this.options.notify(
+      configuredLimit === undefined
+        ? "Goal mode active with no continuation limit."
+        : `Goal mode active (maximum ${configuredLimit} continuation turns).`,
+    );
+    this.triggerGoalTurn("kickoff");
+  }
+
+  private async restoreFinishedGoal(finished: PersistedGoalState): Promise<void> {
+    const configuredLimit = this.options.configuredMaxTurns();
+    if (!(await this.activateGoal(finished.objective, configuredLimit))) return;
+    this.options.notify(
+      configuredLimit === undefined
+        ? `Restored the last ${finished.status} goal with no continuation limit.`
+        : `Restored the last ${finished.status} goal (maximum ${configuredLimit} continuation turns).`,
+    );
+    this.triggerGoalTurn("kickoff");
+  }
+
+  private async activateGoal(
+    objective: string,
+    configuredLimit: number | undefined,
+  ): Promise<boolean> {
     if (!this.submitControl) {
       this.options.notify("Select a model before starting a goal.");
-      return;
+      return false;
     }
-
-    const configuredLimit = this.options.configuredMaxTurns();
     this.goal = {
       objective,
       status: "active",
@@ -230,12 +255,7 @@ export class GoalRuntime {
     };
     await this.persist(this.goal);
     this.updateStatus();
-    this.options.notify(
-      configuredLimit === undefined
-        ? "Goal mode active with no continuation limit."
-        : `Goal mode active (maximum ${configuredLimit} continuation turns).`,
-    );
-    this.triggerGoalTurn("kickoff");
+    return true;
   }
 
   private showGoal(): void {
@@ -357,6 +377,15 @@ export class GoalRuntime {
     await this.options.session.recordModeState(GOAL_STATE_KEY, stored as unknown as JsonValue);
   }
 
+  private latestPersistedGoal(): PersistedGoalState | undefined {
+    let latest: PersistedGoalState | undefined;
+    for (const entry of this.options.session.current.entries) {
+      if (entry.type !== "mode_state" || entry.key !== GOAL_STATE_KEY) continue;
+      latest = parseStoredGoal(entry.value) ?? latest;
+    }
+    return latest;
+  }
+
   private updateStatus(): void {
     const current = this.goal;
     if (!current) {
@@ -425,10 +454,14 @@ export class GoalRuntime {
 
         this.stopRequested = true;
         if (input.op === "complete") {
-          this.options.notify("Goal completed. Automatic continuation stopped.");
+          this.options.notify(
+            "Goal completed. Automatic continuation stopped. Use /goal resume to restore it if this was premature.",
+          );
           return { content: "Goal marked complete. Automatic continuation is stopped." };
         }
-        this.options.notify("Goal dropped by the model. Automatic continuation stopped.");
+        this.options.notify(
+          "Goal dropped by the model. Automatic continuation stopped. Use /goal resume to restore it.",
+        );
         return { content: "Goal dropped. Automatic continuation is stopped." };
       },
     };

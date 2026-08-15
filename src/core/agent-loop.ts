@@ -88,6 +88,7 @@ interface CollectedResponse {
   readonly assistant: AssistantMessage;
   readonly providerToolResults: readonly ToolResultMessage[];
   readonly resolvedToolCallIds: ReadonlySet<string>;
+  readonly stopReason: "stop" | "tool_call" | "length" | "unknown";
 }
 
 export class AgentLoop {
@@ -255,7 +256,7 @@ export class AgentLoop {
   private async runTurn(signal: AbortSignal): Promise<void> {
     while (true) {
       throwIfAborted(signal);
-      const { assistant, providerToolResults, resolvedToolCallIds } =
+      const { assistant, providerToolResults, resolvedToolCallIds, stopReason } =
         await this.collectResponse(signal);
       throwIfAborted(signal);
       this.accumulatedUsage = addUsage(this.accumulatedUsage, assistant.usage);
@@ -289,6 +290,7 @@ export class AgentLoop {
           this.publish({ type: "tool_result", message: result });
         }
         if (this.stopWhen?.() === true) return;
+        if (pendingCalls.length === 0 && stopReason !== "tool_call") return;
       } catch (error) {
         this.history.splice(historyStart);
         throw error;
@@ -351,6 +353,7 @@ export class AgentLoop {
     let started = false;
     let sawResponseDelta = false;
     let ended = false;
+    let stopReason: CollectedResponse["stopReason"] = "unknown";
     let upstreamIdentity:
       | {
           readonly provider?: string;
@@ -477,6 +480,7 @@ export class AgentLoop {
           break;
         case "response_end":
           ended = true;
+          stopReason = event.stopReason ?? "unknown";
           providerReplay = event.providerReplay;
           this.publish(event);
           break;
@@ -511,6 +515,7 @@ export class AgentLoop {
       assistant,
       providerToolResults: [...providerToolResults.values()],
       resolvedToolCallIds,
+      stopReason,
     };
   }
 

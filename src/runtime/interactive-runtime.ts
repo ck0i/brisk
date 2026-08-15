@@ -527,6 +527,7 @@ export class InteractiveRuntime {
     const providers = await ProviderService.initialize({
       paths: this.paths,
       config: this.configManager.current,
+      workspace: this.options.workspace,
       ...(preferredModel === undefined ? {} : { preferredModel }),
       sessionId: session.sessionId,
     });

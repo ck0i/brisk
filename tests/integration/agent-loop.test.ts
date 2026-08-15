@@ -327,6 +327,54 @@ describe("AgentLoop failures and retries", () => {
     expect(loop.messages.at(-1)).toMatchObject({ role: "assistant", content: "recovered" });
   });
 
+  test("does not start another stream when resolved tools finish with stop", async () => {
+    let requests = 0;
+    const provider: Provider = {
+      async *stream() {
+        requests += 1;
+        yield { type: "response_start" as const };
+        yield { type: "text_delta" as const, delta: "survey complete" };
+        yield {
+          type: "tool_call_start" as const,
+          index: 0,
+          id: "read-1",
+          name: "read",
+          arguments: '{"path":"a.ts"}',
+          resolved: true,
+        };
+        yield {
+          type: "provider_tool_result" as const,
+          message: {
+            role: "tool" as const,
+            toolCallId: "read-1",
+            name: "read",
+            content: "ok",
+            isError: false,
+          },
+        };
+        yield {
+          type: "tool_call_end" as const,
+          index: 0,
+          arguments: '{"path":"a.ts"}',
+          resolved: true,
+        };
+        yield { type: "response_end" as const, stopReason: "stop" as const };
+      },
+    };
+    const loop = new AgentLoop({ provider, model: "cursor/composer-2.5" });
+
+    await loop.submit("inspect");
+
+    expect(requests).toBe(1);
+    expect(loop.messages).toHaveLength(3);
+    expect(loop.messages[1]).toMatchObject({
+      role: "assistant",
+      content: "survey complete",
+      toolCalls: [{ id: "read-1", name: "read" }],
+    });
+    expect(loop.messages[2]).toMatchObject({ role: "tool", toolCallId: "read-1", content: "ok" });
+  });
+
   test("retries bounded retryable failures before deltas", async () => {
     const provider = new FakeProvider([
       { error: { kind: "network", message: "one", retryAfter: 1 } },

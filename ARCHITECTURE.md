@@ -19,7 +19,7 @@ The UI owns terminal I/O and shutdown; runtime coordinates services.
 | UI         | `src/app.tsx`, `src/ui/` | Solid/OpenTUI, composer, approvals, pickers                                            |
 | Runtime    | `src/runtime/`           | Slash commands, first-class loop/goal/BTW modes, session/model switch, subagent bridge |
 | Agent      | `src/core/`              | Messages/events, turn queue, streaming, tools, retries                                 |
-| Providers  | `src/providers/`         | `pi-ai` adapter, auth, model cache, custom endpoints                                   |
+| Providers  | `src/providers/`         | `pi-ai` adapter, Cursor Agent SDK, auth, model cache, custom endpoints                 |
 | Tools      | `src/tools/`             | Registry, Hashline workspace, permissions, bash                                        |
 | Sessions   | `src/sessions/`          | Append-only JSONL, index, recovery                                                     |
 | Context    | `src/context/`           | Estimation, Snapcompact (dynamic import)                                               |
@@ -39,7 +39,7 @@ First-class modes are coordinated by the runtime rather than extension hooks: `/
 
 ## Providers
 
-`ProviderService` wraps auth storage, `ModelRegistry`, and `PiAiProvider`. Provider-specific shapes are normalized at the adapter. Reasoning effort is resolved against each model's catalog-declared levels and applied independently to main and isolated child transports. Custom OpenAI-compatible providers use catalog records + `apiKeyEnv` or `keyless`. Errors are redacted before UI/transcript.
+`ProviderService` wraps auth storage, `ModelRegistry`, and a model transport. Cursor models use `@cursor/sdk`. Other models use `PiAiProvider`. Provider-specific shapes are normalized at the adapter. Reasoning effort is resolved against each model's catalog-declared levels and applied independently to main and isolated child transports. Custom OpenAI-compatible providers use catalog records + `apiKeyEnv` or `keyless`. Errors are redacted before UI/transcript.
 
 ## Tools and permissions
 

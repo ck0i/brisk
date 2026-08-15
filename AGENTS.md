@@ -1,6 +1,6 @@
 # Agent instructions
 
-Brisk: Bun/TypeScript terminal coding harness (Solid + OpenTUI). Agent loop, tools, sessions, compaction, and subagents are in-tree; `@oh-my-pi/pi-ai` is for providers/auth only.
+Brisk: Bun/TypeScript terminal coding harness (Solid + OpenTUI). Agent loop, tools, sessions, compaction, and subagents are in-tree; `@oh-my-pi/pi-ai` is for providers/auth only, except Cursor which uses `@cursor/sdk`.
 
 ## Where to look
 

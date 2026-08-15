@@ -79,6 +79,11 @@ const TARGET_DESCRIPTORS: Readonly<Record<SupportedTarget, TargetDescriptor>> = 
   },
 };
 
+function cursorSdkNativePackage(descriptor: TargetDescriptor): string {
+  const os = descriptor.platform === "win32" ? "win32" : descriptor.platform;
+  return `@cursor/sdk-${os}-${descriptor.arch}`;
+}
+
 function openTuiNativePackages(descriptor: TargetDescriptor): readonly string[] {
   const base = `@opentui/core-${descriptor.platform}-${descriptor.arch}`;
   return descriptor.platform === "linux" ? [base, `${base}-musl`] : [base];
@@ -250,6 +255,7 @@ async function buildTarget(metadata: PackageMetadata, target: SupportedTarget): 
 async function prepareNativePackages(descriptor: TargetDescriptor): Promise<string | undefined> {
   const openTuiPackages = openTuiNativePackages(descriptor);
   const piNativesPackage = `@oh-my-pi/pi-natives-${descriptor.platform}-${descriptor.arch}`;
+  const cursorSdkPackage = cursorSdkNativePackage(descriptor);
   const installedOpenTui = await Promise.all(
     openTuiPackages.map(
       async (packageName) => await packageDirectoryExists(join(ROOT, "node_modules"), packageName),
@@ -257,13 +263,15 @@ async function prepareNativePackages(descriptor: TargetDescriptor): Promise<stri
   );
   if (
     installedOpenTui.every(Boolean) &&
-    (await packageDirectoryExists(join(ROOT, "node_modules"), piNativesPackage))
+    (await packageDirectoryExists(join(ROOT, "node_modules"), piNativesPackage)) &&
+    (await packageDirectoryExists(join(ROOT, "node_modules"), cursorSdkPackage))
   ) {
     return undefined;
   }
 
   const openTuiVersion = await installedPackageVersion("@opentui/core");
   const piNativesVersion = await installedPackageVersion("@oh-my-pi/pi-natives");
+  const cursorSdkVersion = await installedPackageVersion("@cursor/sdk");
   const temporaryRoot = await mkdtemp(join(tmpdir(), "brisk-native-assets-"));
   await writeFile(
     join(temporaryRoot, "package.json"),
@@ -281,6 +289,7 @@ async function prepareNativePackages(descriptor: TargetDescriptor): Promise<stri
         `--cpu=${descriptor.arch}`,
         ...openTuiPackages.map((packageName) => `${packageName}@${openTuiVersion}`),
         `${piNativesPackage}@${piNativesVersion}`,
+        `${cursorSdkPackage}@${cursorSdkVersion}`,
       ],
       temporaryRoot,
       `install native assets for ${descriptor.platform}-${descriptor.arch}`,
@@ -368,6 +377,17 @@ async function copyRuntimeAssets(
   for (const nativeFile of nativeFiles) {
     await copyFile(join(piNativesDirectory, nativeFile), join(releaseDirectory, nativeFile));
   }
+
+  const cursorSdkPackage = cursorSdkNativePackage(descriptor);
+  const cursorSdkDirectory = join(nodeModules, ...cursorSdkPackage.split("/"));
+  await requirePath(join(cursorSdkDirectory, "package.json"), `${cursorSdkPackage} package`);
+  const cursorSdkDestination = join(
+    releaseDirectory,
+    "node_modules",
+    ...cursorSdkPackage.split("/"),
+  );
+  await mkdir(dirname(cursorSdkDestination), { recursive: true });
+  await cp(cursorSdkDirectory, cursorSdkDestination, { recursive: true });
 }
 
 async function compileExecutable(

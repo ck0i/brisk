@@ -30,7 +30,8 @@ import type {
   Usage,
 } from "../core/messages.ts";
 import { normalizeAssistantMessageEvent, normalizeProviderFailure } from "./normalization.ts";
-import type { Provider, ProviderRequest, ProviderToolSchema } from "./types.ts";
+import type { ModelTransport } from "./transport.ts";
+import type { ProviderRequest, ProviderToolSchema } from "./types.ts";
 
 export interface ApiKeyResolutionOptions {
   readonly baseUrl?: string;
@@ -65,7 +66,7 @@ export interface PiAiProviderOptions {
 }
 
 /** Brisk Provider adapter for the standalone pi-ai runtime. */
-export class PiAiProvider implements Provider {
+export class PiAiProvider implements ModelTransport {
   private currentModel: Model<Api>;
   private readonly auth: CredentialResolver;
   private reasoning: Effort | "off" | undefined;

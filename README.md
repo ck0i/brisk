@@ -1,6 +1,6 @@
 # Brisk
 
-Brisk is a provider-agnostic terminal coding harness (Bun, Solid, OpenTUI). It owns the agent loop, tools, permissions, sessions, context compaction, and subagents; [`@oh-my-pi/pi-ai`](https://www.npmjs.com/package/@oh-my-pi/pi-ai) handles provider transports and authentication.
+Brisk is a provider-agnostic terminal coding harness (Bun, Solid, OpenTUI). It owns the agent loop, tools, permissions, sessions, context compaction, and subagents; [`@oh-my-pi/pi-ai`](https://www.npmjs.com/package/@oh-my-pi/pi-ai) handles most provider transports and authentication. Cursor models use the [Cursor Agent SDK](https://cursor.com/docs/sdk/typescript).
 
 ## Requirements
 

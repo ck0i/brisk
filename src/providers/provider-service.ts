@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { CacheRetention } from "@oh-my-pi/pi-ai";
 import type { Effort } from "@oh-my-pi/pi-catalog/effort";
 import {
@@ -10,6 +12,7 @@ import type { Api, Model, OpenAICompat } from "@oh-my-pi/pi-catalog";
 import type { BriskConfig, CustomProviderConfig, EffortSetting } from "../config/schema.ts";
 import type { ConfigPaths } from "../config/paths.ts";
 import { AuthService, type AuthServiceDependencies } from "./auth-service.ts";
+import { CursorSdkProvider, type CursorSdkRuntime } from "./cursor-sdk-provider.ts";
 import {
   ModelRegistry,
   type CustomOpenAICompatibleModel,
@@ -21,14 +24,17 @@ import {
   type CredentialResolver,
 } from "./pi-ai-provider.ts";
 import { resolvePromptCacheRetention } from "./prompt-cache.ts";
+import { isCursorAgentModel, type ModelTransport } from "./transport.ts";
 
 export interface ProviderServiceOptions {
   readonly paths: ConfigPaths;
   readonly config: BriskConfig;
+  readonly workspace?: string;
   readonly sessionId?: string;
   readonly preferredModel?: string;
   readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly authDependencies?: AuthServiceDependencies;
+  readonly cursorRuntime?: CursorSdkRuntime;
 }
 
 export interface ModelSelection {
@@ -37,7 +43,7 @@ export interface ModelSelection {
 }
 
 export interface IsolatedProviderSelection extends ModelSelection {
-  readonly provider: PiAiProvider;
+  readonly provider: ModelTransport;
   readonly modelSpecifier: string;
   readonly effort: EffortSetting;
 }
@@ -64,7 +70,10 @@ export class ConfigCredentialResolver implements CredentialResolver {
 
   async hasAuth(provider: string): Promise<boolean> {
     const custom = this.customProviders[provider];
-    if (!custom) return await this.upstream.hasAuth(provider);
+    if (!custom) {
+      if (provider === "cursor" && Boolean(this.environment.CURSOR_API_KEY?.trim())) return true;
+      return await this.upstream.hasAuth(provider);
+    }
     if (custom.keyless === true) return true;
     if (custom.apiKeyEnv !== undefined) return Boolean(this.environment[custom.apiKeyEnv]);
     return await this.upstream.hasAuth(provider);
@@ -76,14 +85,19 @@ export class ConfigCredentialResolver implements CredentialResolver {
     options?: ApiKeyResolutionOptions,
   ): Promise<string | undefined> {
     const custom = this.customProviders[provider];
-    if (!custom) return await this.upstream.getApiKey(provider, sessionId, options);
+    if (!custom) {
+      const stored = await this.upstream.getApiKey(provider, sessionId, options);
+      if (stored) return stored;
+      if (provider === "cursor") return this.environment.CURSOR_API_KEY?.trim();
+      return undefined;
+    }
     if (custom.keyless === true) return undefined;
     if (custom.apiKeyEnv !== undefined) return this.environment[custom.apiKeyEnv];
     return await this.upstream.getApiKey(provider, sessionId, options);
   }
 }
 
-/** Owns one reusable auth store, model registry, and pi-ai transport. */
+/** Owns one reusable auth store, model registry, and provider transport. */
 export class ProviderService {
   readonly auth: AuthService;
   readonly registry: ModelRegistry;
@@ -91,11 +105,15 @@ export class ProviderService {
   private readonly listeners = new Set<ProviderServiceListener>();
   private readonly preferredModel: string | undefined;
   private readonly cacheRetention: CacheRetention;
+  private readonly workspace: string;
+  private readonly environment: Readonly<Record<string, string | undefined>>;
+  private readonly cursorRuntime: CursorSdkRuntime | undefined;
+  private readonly paths: ConfigPaths;
   private requestedEffort: EffortSetting;
   private readonly subtaskEffort: EffortSetting;
   private sessionId: string | undefined;
   private selectedValue: ModelSelection | undefined;
-  private transportValue: PiAiProvider | undefined;
+  private transportValue: ModelTransport | undefined;
   private closed = false;
 
   private constructor(
@@ -107,8 +125,12 @@ export class ProviderService {
     this.auth = auth;
     this.registry = registry;
     this.credentials = credentials;
+    this.paths = options.paths;
     this.preferredModel = options.preferredModel ?? options.config.defaultModel;
     this.cacheRetention = resolvePromptCacheRetention(options.environment);
+    this.workspace = options.workspace ?? process.cwd();
+    this.environment = options.environment ?? process.env;
+    this.cursorRuntime = options.cursorRuntime;
     this.requestedEffort = options.config.effort;
     this.subtaskEffort = options.config.subtaskEffort;
     this.sessionId = options.sessionId;
@@ -142,7 +164,7 @@ export class ProviderService {
     return this.selectedValue;
   }
 
-  get provider(): PiAiProvider | undefined {
+  get provider(): ModelTransport | undefined {
     return this.transportValue;
   }
 
@@ -223,22 +245,9 @@ export class ProviderService {
     if (!selected) throw new Error("No provider model is selected for the child session");
     const resolvedSpecifier = `${selected.record.provider}/${selected.record.id}`;
     const resolvedEffort = resolveEffortSetting(selected.upstream, effort);
-    const reasoning = toProviderReasoning(resolvedEffort);
     return {
       ...selected,
-      provider: new PiAiProvider({
-        model: selected.upstream,
-        auth: this.credentials,
-        sessionId,
-        cacheRetention: this.cacheRetention,
-        ...(reasoning === undefined ? {} : { reasoning }),
-        ...(selected.upstream.api === "cursor-agent"
-          ? {
-              streamFirstEventTimeoutMs: CURSOR_CHILD_STREAM_TIMEOUT_MS,
-              streamIdleTimeoutMs: CURSOR_CHILD_STREAM_TIMEOUT_MS,
-            }
-          : {}),
-      }),
+      provider: this.createTransport(selected.upstream, sessionId, resolvedEffort, true),
       modelSpecifier: resolvedSpecifier,
       effort: resolvedEffort,
     };
@@ -249,18 +258,18 @@ export class ProviderService {
     const selection = this.selectionFor(provider, id);
     const { upstream } = selection;
     this.selectedValue = selection;
-    const reasoning = toProviderReasoning(resolveEffortSetting(upstream, this.requestedEffort));
-    if (this.transportValue) {
+    if (this.transportValue && sameTransportKind(this.transportValue, upstream)) {
+      const reasoning = toProviderReasoning(resolveEffortSetting(upstream, this.requestedEffort));
       this.transportValue.setModel(upstream);
       this.transportValue.setReasoning(reasoning);
     } else {
-      this.transportValue = new PiAiProvider({
-        model: upstream,
-        auth: this.credentials,
-        cacheRetention: this.cacheRetention,
-        ...(reasoning === undefined ? {} : { reasoning }),
-        ...(this.sessionId === undefined ? {} : { sessionId: this.sessionId }),
-      });
+      this.transportValue?.close();
+      this.transportValue = this.createTransport(
+        upstream,
+        this.sessionId,
+        this.requestedEffort,
+        false,
+      );
     }
     this.publish();
     return this.selectedValue;
@@ -282,6 +291,35 @@ export class ProviderService {
     this.transportValue?.close();
     this.transportValue = undefined;
     this.auth.close();
+  }
+
+  private createTransport(
+    upstream: Model<Api>,
+    sessionId: string | undefined,
+    effort: EffortSetting,
+    isolated: boolean,
+  ): ModelTransport {
+    const reasoning = toProviderReasoning(resolveEffortSetting(upstream, effort));
+    if (isCursorAgentModel(upstream)) {
+      return new CursorSdkProvider({
+        model: upstream,
+        auth: this.credentials,
+        workspace: this.workspace,
+        storeDirectory: join(this.paths.dataRoot, "cursor-sdk"),
+        environment: this.environment,
+        ...(sessionId === undefined ? {} : { sessionId }),
+        ...(reasoning === undefined ? {} : { reasoning }),
+        ...(this.cursorRuntime === undefined ? {} : { runtime: this.cursorRuntime }),
+        ...(isolated ? { firstEventTimeoutMs: CURSOR_CHILD_STREAM_TIMEOUT_MS } : {}),
+      });
+    }
+    return new PiAiProvider({
+      model: upstream,
+      auth: this.credentials,
+      cacheRetention: this.cacheRetention,
+      ...(reasoning === undefined ? {} : { reasoning }),
+      ...(sessionId === undefined ? {} : { sessionId }),
+    });
   }
 
   private publish(): void {
@@ -319,6 +357,10 @@ export function resolveEffortSetting(
   const effort = effortFromSetting(requested);
   const clamped = clampThinkingLevelForModel(model, effort);
   return (clamped ?? "auto") as EffortSetting;
+}
+
+function sameTransportKind(transport: ModelTransport, model: Model<Api>): boolean {
+  return isCursorAgentModel(transport.model) === isCursorAgentModel(model);
 }
 
 function toProviderReasoning(effort: EffortSetting): Effort | "off" | undefined {

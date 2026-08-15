@@ -1,6 +1,6 @@
 # Providers and authentication
 
-Transports, OAuth, refresh, and prompt-cache wire formats are handled by `@oh-my-pi/pi-ai`. Brisk owns the agent loop, tools, and sessions.
+Transports, OAuth, refresh, and prompt-cache wire formats are handled by `@oh-my-pi/pi-ai`, except Cursor. Cursor models run through the Cursor Agent SDK (`@cursor/sdk`). Brisk still owns the agent loop, tools, and sessions.
 
 ## API keys
 
@@ -14,6 +14,7 @@ Set env vars in the shell that launches `brisk` (never in JSONC):
 | Anthropic OAuth override    | `ANTHROPIC_OAUTH_TOKEN`    |
 | OpenAI Codex OAuth override | `OPENAI_CODEX_OAUTH_TOKEN` |
 | Cursor override             | `CURSOR_ACCESS_TOKEN`      |
+| Cursor Agent SDK            | `CURSOR_API_KEY`           |
 
 `brisk auth status` lists configured providers without printing values.
 
@@ -30,6 +31,12 @@ brisk auth logout <provider>
 **IDs matter:** `openai-codex` is ChatGPT/Codex OAuth, not `openai/...` + `OPENAI_API_KEY`. `google-antigravity` is distinct from `google/...` + `GEMINI_API_KEY`.
 
 Some flows need a pasted callback URL or code when the browser cannot complete automatically.
+
+## Cursor Agent SDK
+
+Cursor models use Cursor's local Agent SDK, not the Cursor CLI protocol. Brisk creates a durable local agent against the workspace and sends each user turn with `agent.send()`. Built-in Cursor file and shell tools stay disabled. Brisk registers its own tools as SDK custom tools, so Hashline, path jail, and permission checks still run.
+
+Set `CURSOR_API_KEY` from [Cursor Dashboard → API Keys](https://cursor.com/dashboard/api). `brisk auth login cursor` still stores the existing Cursor OAuth grant. Brisk passes a stored Cursor credential first. If none exists, it uses `CURSOR_API_KEY`.
 
 ## Models
 

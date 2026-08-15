@@ -6,6 +6,7 @@ This file covers Brisk's direct runtime dependencies at the versions pinned in `
 
 | Package                        | Version | License                     | Project                                                                    |
 | ------------------------------ | ------: | --------------------------- | -------------------------------------------------------------------------- |
+| `@cursor/sdk`                  |  1.0.28 | Proprietary (Cursor TOS)    | <https://cursor.com/docs/sdk/typescript>                                   |
 | `@modelcontextprotocol/client` |   2.0.0 | Apache-2.0 / MIT transition | <https://github.com/modelcontextprotocol/typescript-sdk>                   |
 | `@oh-my-pi/hashline`           |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/hashline>       |
 | `@oh-my-pi/pi-ai`              |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/ai>             |
@@ -20,6 +21,10 @@ This file covers Brisk's direct runtime dependencies at the versions pinned in `
 | `zod`                          |   4.4.3 | MIT                         | <https://github.com/colinhacks/zod>                                        |
 
 Versions and license information above are taken from installed package metadata and bundled license files. The copyright notices below are retained from installed license files or the identified upstream release license where a package omitted a license file.
+
+## Cursor Agent SDK
+
+`@cursor/sdk` is proprietary software of Anysphere Inc. Use is subject to Cursor's Terms of Service at <https://cursor.com/terms-of-service>. The installed package includes `LICENSE.md`.
 
 ## Model Context Protocol client
 

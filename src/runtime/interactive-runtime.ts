@@ -356,7 +356,7 @@ export class InteractiveRuntime {
           artifactsDirectory: `${this.requireSessionRuntime().artifactDirectory}/${threadId}`,
           permissionMode: this.configManager.current.permissionMode,
           approvalHandler: this.approvalController,
-          enabledTools: ["read", "search", "find", "list"],
+          enabledTools: ["read", "search", "find", "list", "web_search"],
         });
         return tools;
       },

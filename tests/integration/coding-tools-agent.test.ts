@@ -93,6 +93,7 @@ describe("native coding tool agent flow", () => {
       "list",
       "read",
       "search",
+      "web_search",
       "write",
     ]);
     expect(approval.requests.map((request) => request.toolName)).toEqual(["edit", "bash"]);

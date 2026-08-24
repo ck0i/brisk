@@ -20,8 +20,10 @@ import {
   type ToolResult,
 } from "./registry.ts";
 import { createSearchTool } from "./search.ts";
+import { createWebSearchTool } from "./web-search.ts";
 
-export type CodingToolName = "read" | "edit" | "write" | "search" | "find" | "list" | "bash";
+export type CodingToolName =
+  "read" | "edit" | "write" | "search" | "find" | "list" | "bash" | "web_search";
 
 export interface CodingToolsOptions {
   readonly workspace: string;
@@ -66,7 +68,16 @@ export async function registerCodingTools(
     });
 
   const enabled = new Set<CodingToolName>(
-    options.enabledTools ?? ["read", "edit", "write", "search", "find", "list", "bash"],
+    options.enabledTools ?? [
+      "read",
+      "edit",
+      "write",
+      "search",
+      "find",
+      "list",
+      "bash",
+      "web_search",
+    ],
   );
   if (enabled.has("read")) registry.register(createReadTool(hashline, limiter("read")));
   if (enabled.has("edit")) {
@@ -86,6 +97,9 @@ export async function registerCodingTools(
   }
   if (enabled.has("bash")) {
     registry.register(createAuthorizedBashTool(options.workspace, artifacts, permissions));
+  }
+  if (enabled.has("web_search")) {
+    registry.register(withOutputLimit(createWebSearchTool(), limiter("web-search")));
   }
 
   return { artifacts, hashline, permissions };

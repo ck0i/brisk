@@ -57,7 +57,16 @@ class DynamicFakeProvider implements Provider {
     switch (turn) {
       case 0:
         requireLastMessage(request, "user", "Update the exported value to 2 and run its test");
-        requireTools(request, ["bash", "edit", "find", "list", "read", "search", "write"]);
+        requireTools(request, [
+          "bash",
+          "edit",
+          "find",
+          "list",
+          "read",
+          "search",
+          "web_search",
+          "write",
+        ]);
         return {
           id: "read-response",
           toolCalls: [{ id: "read-1", name: "read", arguments: { path: "src/value.ts" } }],

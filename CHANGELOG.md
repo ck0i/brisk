@@ -13,6 +13,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 - First-class `/loop`, persistent autonomous `/goal`, and private read-only `/btw` side-thread workflows, built into the runtime and TUI rather than loaded as extensions.
 - `/goal resume` restores the last completed or dropped session goal when none is currently active.
 - First-class MCP clients for user-level `mcp.json`, local stdio and Streamable HTTP transports, interactive `/mcp` management, scoped approvals, and token-efficient progressive tool discovery.
+- Zero-config `web_search` access for root, BTW, and delegated agents through Exa's public MCP endpoint, with bounded output and source URLs.
 
 ### Fixed
 

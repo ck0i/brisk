@@ -13,6 +13,9 @@ export function summarizeToolCall(call: ToolCall): string | undefined {
   if (call.name === "task_status" && typeof arguments_.childSessionId === "string") {
     return compact(arguments_.childSessionId);
   }
+  if (call.name === "web_search" && typeof arguments_.query === "string") {
+    return compact(arguments_.query);
+  }
   if (call.name === "mcp_search" && typeof arguments_.query === "string") {
     return compact(arguments_.query || "all tools");
   }

@@ -24,8 +24,14 @@ describe("tool presentation", () => {
         }),
       }),
     ).toBe("src/one.ts, src/two.ts");
+    expect(
+      summarizeToolCall({
+        id: "web-search-1",
+        name: "web_search",
+        arguments: JSON.stringify({ query: "current Bun release" }),
+      }),
+    ).toBe("current Bun release");
   });
-
   test("extracts direct mutation diffs and delegated patch results", () => {
     const diff = "--- a/value.ts\n+++ b/value.ts\n@@ -1 +1 @@\n-before\n+after\n";
     expect(extractToolDiff("edit", `Edit committed\n\n${diff}`)).toBe(diff);

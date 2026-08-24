@@ -13,6 +13,7 @@ import { createFindTool } from "../tools/find.ts";
 import { createListTool } from "../tools/list.ts";
 import { ToolRegistry, type ToolDefinition } from "../tools/registry.ts";
 import { createSearchTool } from "../tools/search.ts";
+import { createWebSearchTool } from "../tools/web-search.ts";
 import { CheckpointStore, withoutPendingToolTurn } from "../subagents/checkpoint.ts";
 import { SubagentManager } from "../subagents/manager.ts";
 import { PatchOverlayWorkspace, createPatchOverlayTools } from "../subagents/patch-overlay.ts";
@@ -303,7 +304,7 @@ export class RuntimeSubagents {
         artifactsDirectory: `${this.options.artifactsDirectory}/${context.childSessionId}`,
         permissionMode: this.options.permissionMode,
         approvalHandler: this.options.approvalHandler,
-        enabledTools: ["read", "search", "find", "list", "bash"],
+        enabledTools: ["read", "search", "find", "list", "bash", "web_search"],
       });
       return registry;
     }
@@ -329,6 +330,7 @@ export class RuntimeSubagents {
     registry.register(createSearchTool(this.options.workspace));
     registry.register(createFindTool(this.options.workspace));
     registry.register(createListTool(this.options.workspace));
+    registry.register(createWebSearchTool());
     return registry;
   }
 

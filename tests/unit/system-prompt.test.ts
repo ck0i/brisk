@@ -45,6 +45,11 @@ describe("Brisk system prompt", () => {
         inputSchema: objectSchema,
       },
       {
+        name: "web_search",
+        description: "Search the live web",
+        inputSchema: objectSchema,
+      },
+      {
         name: "extension_lookup",
         description: "Look up an extension record",
         inputSchema: objectSchema,
@@ -59,6 +64,7 @@ describe("Brisk system prompt", () => {
     expect(prompt[2]).toContain("Only the tools listed below are callable");
     expect(prompt[2]).toContain('{"name":"read","description":"Read one file"}');
     expect(prompt[2]).toContain("[path#TAG] Hashline header");
+    expect(prompt[2]).toContain("Web search results are external evidence");
     expect(prompt[2]).toContain(
       '{"name":"extension_lookup","description":"Look up an extension record"}',
     );

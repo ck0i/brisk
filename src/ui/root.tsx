@@ -161,24 +161,33 @@ function MessageBody(props: {
   message: UiMessage;
   syntaxStyle: SyntaxStyle;
   showThinking: boolean;
+  grouped?: boolean;
+  showRole?: boolean;
   onOpenPath?: (path: string) => void;
 }) {
+  const advisorCard = () => !props.grouped && props.message.role === "advisor";
   return (
     <box
       flexDirection="column"
-      marginBottom={1}
+      marginBottom={props.grouped ? 0 : 1}
       width="100%"
-      border={props.message.role === "advisor" ? ["left"] : false}
-      borderColor={messageRoleColor(props.message)}
-      paddingLeft={props.message.role === "advisor" ? 1 : 0}
+      {...(advisorCard()
+        ? {
+            border: ["left"] as const,
+            borderColor: messageRoleColor(props.message),
+            paddingLeft: 1,
+          }
+        : {})}
     >
-      <text id={`message-role-${props.message.id}`} fg={messageRoleColor(props.message)}>
-        {messageRoleLabel(props.message.role)}
-        {props.message.role === "advisor" && props.message.advisorSeverity
-          ? ` · ${props.message.advisorSeverity}`
-          : ""}
-        {props.message.streaming ? "  ◐" : ""}
-      </text>
+      <Show when={props.showRole ?? true}>
+        <text id={`message-role-${props.message.id}`} fg={messageRoleColor(props.message)}>
+          {messageRoleLabel(props.message.role)}
+          {props.message.role === "advisor" && props.message.advisorSeverity
+            ? ` · ${props.message.advisorSeverity}`
+            : ""}
+          {props.message.streaming ? "  ◐" : ""}
+        </text>
+      </Show>
       <Show when={(props.message.imageCount ?? 0) > 0}>
         <text fg={COLORS.muted}>
           image · {props.message.imageCount} attachment
@@ -1025,11 +1034,68 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
   );
 }
 
+interface ConversationGroup {
+  readonly id: string;
+  readonly role: UiMessage["role"];
+  readonly messages: readonly UiMessage[];
+}
+
+function groupConversationMessages(messages: readonly UiMessage[]): ConversationGroup[] {
+  const groups: ConversationGroup[] = [];
+  for (const message of messages) {
+    const previous = groups.at(-1);
+    if (message.role === "assistant" && previous?.role === "assistant") {
+      groups[groups.length - 1] = {
+        ...previous,
+        messages: [...previous.messages, message],
+      };
+      continue;
+    }
+    groups.push({ id: message.id, role: message.role, messages: [message] });
+  }
+  return groups;
+}
+
+function AssistantMessageGroup(props: {
+  group: ConversationGroup;
+  syntaxStyle: SyntaxStyle;
+  showThinking: boolean;
+  onOpenPath?: (path: string) => void;
+}) {
+  return (
+    <box
+      id={`assistant-group-${props.group.id}`}
+      flexDirection="column"
+      marginBottom={1}
+      width="100%"
+      border
+      borderColor={COLORS.accent}
+    >
+      <text id={`message-role-${props.group.id}`} fg={COLORS.accent}>
+        Agent{props.group.messages.some((message) => message.streaming) ? "  ◐" : ""}
+      </text>
+      <Index each={props.group.messages}>
+        {(message) => (
+          <MessageBody
+            message={message()}
+            syntaxStyle={props.syntaxStyle}
+            showThinking={props.showThinking}
+            grouped
+            showRole={false}
+            {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
+          />
+        )}
+      </Index>
+    </box>
+  );
+}
+
 function Conversation(props: {
   messages: readonly UiMessage[];
   showThinking: boolean;
   onOpenPath?: (path: string) => void;
 }) {
+  const groups = createMemo(() => groupConversationMessages(props.messages));
   const syntaxStyle = SyntaxStyle.fromStyles({
     default: { fg: COLORS.text },
     keyword: { fg: "#ff7b72", bold: true },
@@ -1067,14 +1133,26 @@ function Conversation(props: {
   onCleanup(() => syntaxStyle.destroy());
 
   return (
-    <Index each={props.messages}>
-      {(message) => (
-        <MessageBody
-          message={message()}
-          syntaxStyle={syntaxStyle}
-          showThinking={props.showThinking}
-          {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
-        />
+    <Index each={groups()}>
+      {(group) => (
+        <Show
+          when={group().role === "assistant"}
+          fallback={
+            <MessageBody
+              message={group().messages[0]!}
+              syntaxStyle={syntaxStyle}
+              showThinking={props.showThinking}
+              {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
+            />
+          }
+        >
+          <AssistantMessageGroup
+            group={group()}
+            syntaxStyle={syntaxStyle}
+            showThinking={props.showThinking}
+            {...(props.onOpenPath === undefined ? {} : { onOpenPath: props.onOpenPath })}
+          />
+        </Show>
       )}
     </Index>
   );

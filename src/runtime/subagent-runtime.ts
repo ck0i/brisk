@@ -55,6 +55,7 @@ export interface RuntimeSubagentsOptions {
   readonly defaultEffort: EffortSetting;
   readonly maxConcurrency: number;
   readonly defaultAdvisorModel?: string;
+  readonly defaultAdvisorEffort?: EffortSetting;
   readonly maxDepth: number;
   readonly permissionMode: "safe" | "write" | "yolo";
   readonly approvalHandler: ApprovalHandler;
@@ -81,6 +82,7 @@ export class RuntimeSubagents {
   private readonly removeDecisionHandler: () => void;
   private defaultEffort: EffortSetting;
   private defaultAdvisorModel: string | undefined;
+  private defaultAdvisorEffort: EffortSetting;
   private disposed = false;
 
   private constructor(
@@ -90,6 +92,7 @@ export class RuntimeSubagents {
     this.manager = manager;
     this.defaultEffort = options.defaultEffort;
     this.defaultAdvisorModel = options.defaultAdvisorModel;
+    this.defaultAdvisorEffort = options.defaultAdvisorEffort ?? options.defaultEffort;
     this.removeStatusListener = manager.subscribe((info) => this.publish(info));
     this.removeDecisionHandler = options.store.setAgentDecisionHandler((id, decision) => {
       if (decision === "cancel") manager.cancel(id);
@@ -172,6 +175,10 @@ export class RuntimeSubagents {
 
   setDefaultEffort(effort: EffortSetting): void {
     this.defaultEffort = effort;
+  }
+
+  setDefaultAdvisorEffort(effort: EffortSetting): void {
+    this.defaultAdvisorEffort = effort;
   }
 
   setDefaultAdvisorModel(model: string | undefined): void {
@@ -320,7 +327,7 @@ export class RuntimeSubagents {
       selection = this.options.providerService.createIsolatedProvider(
         model,
         `${context.childSessionId}-advisor`,
-        this.defaultEffort,
+        this.defaultAdvisorEffort,
       );
       const tools = new ToolRegistry();
       await registerCodingTools(tools, {

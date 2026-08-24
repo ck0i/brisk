@@ -6,7 +6,7 @@ export interface SlashCommand {
 export const BUILT_IN_SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "/help", description: "show keys and commands" },
   { name: "/model", description: "select a provider/model and reasoning effort" },
-  { name: "/effort", description: "select main-agent reasoning effort" },
+  { name: "/effort", description: "select main-agent, subagent, or advisor reasoning effort" },
   { name: "/loop", description: "repeat the next prompt until a count or stop" },
   { name: "/goal", description: "run and manage an autonomous session goal" },
   { name: "/btw", description: "ask a private read-only side agent" },

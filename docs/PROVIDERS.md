@@ -47,7 +47,7 @@ brisk --model provider/model
 
 Cached catalog shows immediately; availability refreshes asynchronously. Set `defaultModel` in config or use `/model`.
 
-Model selection is followed by an effort picker derived from that model's catalog metadata. `/effort` changes the active main model; `/effort subagent` changes the child default. Unsupported levels are not offered, non-reasoning models resolve to `off`, and `auto` uses the provider default.
+Model selection is followed by an effort picker derived from that model's catalog metadata. `/effort` changes the active main model; `/effort subagent` changes the child default; `/effort advisor` changes the configured advisor model. Unsupported levels are not offered, non-reasoning models resolve to `off`, and `auto` uses the provider default.
 
 ## Prompt caching
 

@@ -10,7 +10,7 @@ Policy presets (not OS sandboxes): `safe` prompts for writes and shell; `write` 
 | ---------------------------------- | ---------------------------------------------------------------------------- |
 | `/help`                            | Keys and commands                                                            |
 | `/model [provider/model]`          | Model selection, then effort                                                 |
-| `/effort [subagent]`               | Main or subagent reasoning effort                                            |
+| `/effort [subagent\|advisor]`      | Main, subagent, or advisor reasoning effort                                  |
 | `/loop [N]`, `status`, `stop`      | Repeat the next prompt `N` times, or indefinitely when `N` is omitted        |
 | `/goal <objective>`                | Start an autonomous, persistent session goal                                 |
 | `/goal show`, `pause`, `resume`, … | Inspect or control the active goal (`resume` restores the last finished one) |

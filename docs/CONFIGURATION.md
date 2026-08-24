@@ -31,6 +31,7 @@ User-level MCP servers live in `mcp.json` beside the global config and are manag
   "defaultModel": "anthropic/claude-sonnet-4-5",
   "advisorModel": "openai/gpt-5-mini",
   "subtaskAdvisorModel": "openai/gpt-5-nano",
+  "advisorEffort": "low",
   "permissionMode": "write",
   "maxSubagents": 3,
   "maxSubagentDepth": 1,
@@ -69,7 +70,8 @@ User-level MCP servers live in `mcp.json` beside the global config and are manag
 | `advisorModel`                                                                      | Optional tool-capable reviewer model; omitted disables the main advisor                         |
 | `subtaskAdvisorModel`                                                               | Child reviewer model; omitted inherits `advisorModel`; `"off"` disables child advisors          |
 | `effort`                                                                            | Main reasoning: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`            |
-| `subtaskEffort`                                                                     | Default child and advisor reasoning effort; same values as `effort`                             |
+| `subtaskEffort`                                                                     | Default child reasoning effort; same values as `effort`                                         |
+| `advisorEffort`                                                                     | Main and subagent advisor reasoning effort; same values as `effort`                             |
 | `permissionMode`                                                                    | `safe`, `write`, or prompt-free `yolo` (default `write`); hard-blocked operations remain denied |
 | `maxSubagents` / `maxSubagentDepth`                                                 | Concurrency and nesting; `0` disables children                                                  |
 | `goalMaxTurns`                                                                      | Optional autonomous `/goal` continuation limit; omitted means unlimited                         |
@@ -88,7 +90,7 @@ Choosing `advisorModel` in `/settings` starts an isolated reviewer for the main 
 
 Advice is shown as an Advisor message and persisted in the primary transcript. `nit` notes fold into the next agent step without interruption. `concern` and `blocker` notes steer a response that is currently streaming, but never cancel a tool already executing; tool-time advice is inserted immediately after that tool batch. A late concern is left for the next user turn, while a late blocker starts a corrective turn.
 
-Every enabled subagent gets a separate advisor transport, context, and read-only tool registry. `subtaskAdvisorModel` may select a cheaper or stronger model for those reviewers; when omitted it inherits `advisorModel`. Set it to `"off"` to advise only the main session. Advisor reasoning uses `subtaskEffort`, and advisor model costs are included in the session cost total.
+Every enabled subagent gets a separate advisor transport, context, and read-only tool registry. `subtaskAdvisorModel` may select a cheaper or stronger model for those reviewers; when omitted it inherits `advisorModel`. Set it to `"off"` to advise only the main session. `advisorEffort` controls the reasoning effort for main and subagent advisors independently of `effort` and `subtaskEffort`, and is clamped to each model's supported choices. Advisor model costs are included in the session cost total.
 
 ## Custom OpenAI-compatible providers
 

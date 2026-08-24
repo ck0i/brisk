@@ -39,6 +39,7 @@ const topLevelFields = new Set([
   "subtaskAdvisorModel",
   "effort",
   "subtaskEffort",
+  "advisorEffort",
   "permissionMode",
   "maxSubagents",
   "maxSubagentDepth",

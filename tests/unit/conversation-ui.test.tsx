@@ -37,6 +37,117 @@ test("conversation labels use User and Agent", async () => {
   }
 });
 
+test("consecutive autonomous agent turns render as one stitched response", async () => {
+  const store = new UiStore("fixture");
+  store.addMessage({
+    id: "agent-search",
+    role: "assistant",
+    content: "",
+    streaming: true,
+    tools: [
+      {
+        id: "search",
+        name: "search",
+        status: "completed",
+        summary: "found the relevant files",
+      },
+    ],
+  });
+  const setup = await renderRoot(store, 100, 36);
+  try {
+    await setup.renderOnce();
+    store.appendMessageText("agent-search", "I will inspect the workspace.");
+    await setup.waitForFrame((value) => value.includes("I will inspect the workspace."));
+    store.replaceMessage("agent-search", { streaming: false });
+    store.addMessage({
+      id: "agent-build",
+      role: "assistant",
+      content: "",
+      streaming: true,
+      tools: [
+        {
+          id: "bash",
+          name: "bash",
+          status: "completed",
+          summary: "tests passed",
+        },
+      ],
+    });
+    store.appendMessageText("agent-build", "Now I will verify the change.");
+    await setup.waitForFrame((value) => value.includes("Now I will verify the change."));
+    store.replaceMessage("agent-build", { streaming: false });
+    store.addMessage({
+      id: "agent-final",
+      role: "assistant",
+      content: "",
+      streaming: true,
+      tools: [
+        {
+          id: "final",
+          name: "result",
+          status: "completed",
+          summary: "Finished.",
+        },
+      ],
+    });
+    store.appendMessageText("agent-final", "Finished.");
+    const frame = await setup.waitForFrame(
+      (value) =>
+        value.includes("I will inspect the workspace.") &&
+        value.includes("Now I will verify the change.") &&
+        value.includes("result · Finished."),
+    );
+    store.replaceMessage("agent-final", { streaming: false });
+    expect(frame.match(/Agent/g)).toHaveLength(1);
+    expect(frame.match(/┌/g)).toHaveLength(1);
+    expect(frame.match(/└/g)).toHaveLength(1);
+    expect(frame.indexOf("I will inspect the workspace.")).toBeLessThan(
+      frame.indexOf("search · found the relevant files"),
+    );
+    expect(frame.indexOf("search · found the relevant files")).toBeLessThan(
+      frame.indexOf("Now I will verify the change."),
+    );
+    expect(frame.indexOf("Now I will verify the change.")).toBeLessThan(
+      frame.indexOf("bash · tests passed"),
+    );
+    expect(frame.indexOf("bash · tests passed")).toBeLessThan(frame.indexOf("Finished."));
+    expect(frame.indexOf("Finished.")).toBeLessThan(frame.indexOf("result · Finished."));
+    expect(setup.renderer.root.findDescendantById("assistant-group-agent-search")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("message-role-agent-build")).toBeUndefined();
+    expect(setup.renderer.root.findDescendantById("message-role-agent-final")).toBeUndefined();
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
+test("a new user turn starts a new agent response frame", async () => {
+  const store = new UiStore("fixture");
+  store.addMessage({
+    id: "first-agent",
+    role: "assistant",
+    content: "First response.",
+    tools: [{ id: "first-tool", name: "search", status: "completed", summary: "first run" }],
+  });
+  store.addMessage({ id: "second-user", role: "user", content: "Follow up." });
+  store.addMessage({
+    id: "second-agent",
+    role: "assistant",
+    content: "Second response.",
+    tools: [{ id: "second-tool", name: "bash", status: "completed", summary: "second run" }],
+  });
+  const setup = await renderRoot(store, 100, 30);
+  try {
+    const frame = await setup.waitForFrame((value) => value.includes("second run"));
+    expect(frame.match(/Agent/g)).toHaveLength(2);
+    expect(frame.match(/┌/g)).toHaveLength(2);
+    expect(frame.match(/└/g)).toHaveLength(2);
+    expect(setup.renderer.root.findDescendantById("assistant-group-first-agent")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("assistant-group-second-agent")).toBeDefined();
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("advisor guidance renders as inset severity cards", async () => {
   const store = new UiStore("fixture");
   const setup = await renderRoot(store, 90, 28);

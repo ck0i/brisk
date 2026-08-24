@@ -52,6 +52,9 @@ export const customProviderSchema = z.object({
 export const configSchema = z.object({
   defaultModel: nonEmptyString.optional(),
   defaultSubtaskModel: nonEmptyString.optional(),
+  advisorModel: nonEmptyString.optional(),
+  /** Omitted inherits advisorModel; "off" disables advisors only for subagents. */
+  subtaskAdvisorModel: nonEmptyString.optional(),
   effort: effortSettingSchema.default("auto"),
   subtaskEffort: effortSettingSchema.default("auto"),
   permissionMode: z.enum(["safe", "write", "yolo"]).default("write"),
@@ -86,6 +89,8 @@ const customProviderLayerSchema = z.object({
 export const configLayerSchema = z.object({
   defaultModel: configSchema.shape.defaultModel,
   defaultSubtaskModel: configSchema.shape.defaultSubtaskModel,
+  advisorModel: configSchema.shape.advisorModel,
+  subtaskAdvisorModel: configSchema.shape.subtaskAdvisorModel,
   effort: effortSettingSchema.optional(),
   subtaskEffort: effortSettingSchema.optional(),
   permissionMode: z.enum(["safe", "write", "yolo"]).optional(),

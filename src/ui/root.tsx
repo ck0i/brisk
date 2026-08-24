@@ -11,7 +11,7 @@ import {
 import { onResize, useKeyboard, usePaste, useRenderer } from "@opentui/solid";
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 
-import type { ImageContent } from "../core/messages.ts";
+import type { AdvisorSeverity, ImageContent } from "../core/messages.ts";
 import { redactSecrets } from "../providers/secret-redaction.ts";
 import { clipboardImage, type ClipboardPaste } from "./clipboard.ts";
 import { diffSectionHeight, splitDiffPreview } from "./diff-presentation.ts";
@@ -137,9 +137,24 @@ function messageRoleLabel(role: UiMessage["role"]): string {
       return "User";
     case "assistant":
       return "Agent";
+    case "advisor":
+      return "Advisor";
     case "system":
       return "System";
   }
+}
+
+function advisorSeverityColor(severity: AdvisorSeverity | undefined): string {
+  return severity === "blocker"
+    ? COLORS.error
+    : severity === "concern"
+      ? COLORS.warning
+      : COLORS.success;
+}
+
+function messageRoleColor(message: UiMessage): string {
+  if (message.role === "user") return COLORS.user;
+  return message.role === "advisor" ? advisorSeverityColor(message.advisorSeverity) : COLORS.accent;
 }
 
 function MessageBody(props: {
@@ -149,12 +164,19 @@ function MessageBody(props: {
   onOpenPath?: (path: string) => void;
 }) {
   return (
-    <box flexDirection="column" marginBottom={1} width="100%">
-      <text
-        id={`message-role-${props.message.id}`}
-        fg={props.message.role === "user" ? COLORS.user : COLORS.accent}
-      >
+    <box
+      flexDirection="column"
+      marginBottom={1}
+      width="100%"
+      border={props.message.role === "advisor" ? ["left"] : false}
+      borderColor={messageRoleColor(props.message)}
+      paddingLeft={props.message.role === "advisor" ? 1 : 0}
+    >
+      <text id={`message-role-${props.message.id}`} fg={messageRoleColor(props.message)}>
         {messageRoleLabel(props.message.role)}
+        {props.message.role === "advisor" && props.message.advisorSeverity
+          ? ` · ${props.message.advisorSeverity}`
+          : ""}
         {props.message.streaming ? "  ◐" : ""}
       </text>
       <Show when={(props.message.imageCount ?? 0) > 0}>
@@ -178,17 +200,26 @@ function MessageBody(props: {
         )}
       </Show>
       <Show when={props.message.content.length > 0}>
-        <markdown
-          id={`message-content-${props.message.id}`}
-          content={props.message.content}
-          syntaxStyle={props.syntaxStyle}
-          streaming={props.message.streaming ?? false}
-          internalBlockMode="top-level"
-          conceal
-          concealCode={false}
-          fg={COLORS.text}
-          width="100%"
-        />
+        <Show
+          when={props.message.role === "advisor"}
+          fallback={
+            <markdown
+              id={`message-content-${props.message.id}`}
+              content={props.message.content}
+              syntaxStyle={props.syntaxStyle}
+              streaming={props.message.streaming ?? false}
+              internalBlockMode="top-level"
+              conceal
+              concealCode={false}
+              fg={COLORS.text}
+              width="100%"
+            />
+          }
+        >
+          <text id={`message-content-${props.message.id}`} fg={COLORS.text} width="100%">
+            {props.message.content}
+          </text>
+        </Show>
       </Show>
       <For each={props.message.tools ?? []}>
         {(tool) => (
@@ -949,12 +980,22 @@ function AgentPanel(props: { agents: readonly UiAgentIndicator[]; panel: UiAgent
                 <For each={(agent().transcript ?? []).slice(-6)}>
                   {(line) => (
                     <text
-                      fg={line.role === "assistant" ? COLORS.accent : COLORS.text}
+                      fg={
+                        line.role === "assistant"
+                          ? COLORS.accent
+                          : line.role === "advisor"
+                            ? advisorSeverityColor(line.advisorSeverity)
+                            : COLORS.text
+                      }
                       height={1}
                       wrapMode="none"
                       truncate
                     >
-                      {line.role} · {singleLine(line.content)}
+                      {line.role}
+                      {line.role === "advisor" && line.advisorSeverity
+                        ? ` · ${line.advisorSeverity}`
+                        : ""}
+                      {` · ${singleLine(line.content)}`}
                     </text>
                   )}
                 </For>

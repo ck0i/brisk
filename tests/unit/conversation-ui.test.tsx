@@ -37,6 +37,51 @@ test("conversation labels use User and Agent", async () => {
   }
 });
 
+test("advisor guidance renders as inset severity cards", async () => {
+  const store = new UiStore("fixture");
+  const setup = await renderRoot(store, 90, 28);
+  try {
+    await setup.renderOnce();
+    store.addMessage({ id: "baseline", role: "user", content: "Please review this." });
+    store.addMessage({
+      id: "advisor-nit",
+      role: "advisor",
+      advisorSeverity: "nit",
+      content: "Prefer the smaller helper.",
+    });
+    store.addMessage({
+      id: "advisor-concern",
+      role: "advisor",
+      advisorSeverity: "concern",
+      content: "The requested edge case is still unverified.",
+    });
+    store.addMessage({
+      id: "advisor-blocker",
+      role: "advisor",
+      advisorSeverity: "blocker",
+      content: "Stop before writing incompatible session data.",
+    });
+    const frame = await setup.waitForFrame((value) =>
+      value.includes("Stop before writing incompatible session data."),
+    );
+    expect(frame).toContain("Advisor · nit");
+    expect(frame).toContain("Advisor · concern");
+    expect(frame).toContain("Advisor · blocker");
+    expect(frame).toContain("Prefer the smaller helper.");
+    expect(frame).toContain("The requested edge case is still unverified.");
+    expect(frame).toContain("Stop before writing incompatible session data.");
+
+    const baseline = setup.renderer.root.findDescendantById("message-role-baseline");
+    const advisor = setup.renderer.root.findDescendantById("message-role-advisor-concern");
+    if (!baseline || !advisor || !("x" in baseline) || !("x" in advisor)) {
+      throw new Error("missing message role renderables");
+    }
+    expect(advisor.x).toBeGreaterThan(baseline.x);
+  } finally {
+    setup.renderer.destroy();
+  }
+});
+
 test("streaming assistant lists keep the markdown renderable and visible bullets", async () => {
   const store = new UiStore("fixture");
   store.addMessage({

@@ -2,6 +2,13 @@ export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
   JsonPrimitive | { readonly [key: string]: JsonValue } | readonly JsonValue[];
 
+export type AdvisorSeverity = "nit" | "concern" | "blocker";
+
+export interface AdvisorMessage {
+  readonly note: string;
+  readonly severity: AdvisorSeverity;
+}
+
 export interface Usage {
   readonly inputTokens: number;
   readonly outputTokens: number;
@@ -40,8 +47,10 @@ export interface UserMessage {
   /** ordered after scalar text when translated to provider content blocks */
   readonly images?: readonly ImageContent[];
   readonly timestamp?: number;
-  /** Brisk-owned hidden control messages are persisted but not shown in the main transcript UI. */
-  readonly internal?: "goal-control";
+  /** Brisk-owned control/advisor messages are persisted but not shown as user-authored input. */
+  readonly internal?: "goal-control" | "advisor";
+  /** Present only for an advisor injection; `content` is the provider-facing advisory block. */
+  readonly advisor?: AdvisorMessage;
 }
 
 export interface AssistantMessage {

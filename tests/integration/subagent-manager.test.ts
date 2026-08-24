@@ -115,6 +115,34 @@ describe("SubagentManager execution", () => {
     }
   });
 
+  test("attaches and disposes an independent advisor for every child", async () => {
+    let nextId = 0;
+    const attached: Array<{ id: string; loop: AgentLoop; disposed: boolean }> = [];
+    const manager = new SubagentManager({
+      checkpointStore: new CheckpointStore(),
+      createCheckpoint: () => prefix,
+      defaultModel: "fake/child",
+      createChildSessionId: () => `advised-${++nextId}`,
+      providerFactory: (context) => new FakeProvider([completeTurn(context.childSessionId, 0)]),
+      childAdvisorFactory(context, loop) {
+        const attachment = { id: context.childSessionId, loop, disposed: false };
+        attached.push(attachment);
+        return {
+          waitForIdle: () => Promise.resolve(),
+          dispose: () => {
+            attachment.disposed = true;
+          },
+        };
+      },
+    });
+
+    await manager.runMany([{ description: "one" }, { description: "two" }]);
+
+    expect(attached.map((attachment) => attachment.id)).toEqual(["advised-1", "advised-2"]);
+    expect(attached[0]?.loop).not.toBe(attached[1]?.loop);
+    expect(attached.every((attachment) => attachment.disposed)).toBe(true);
+  });
+
   test("automatically compacts each child's checkpoint and continuation", async () => {
     const largePrefix: readonly Message[] = [
       { role: "user", content: `old parent request ${"x".repeat(9000)}` },

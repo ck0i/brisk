@@ -1,6 +1,8 @@
+import type { AdvisorSeverity } from "../core/messages.ts";
+
 import { rankPickerOptions } from "./picker-search.ts";
 
-export type UiMessageRole = "user" | "assistant" | "system";
+export type UiMessageRole = "user" | "assistant" | "advisor" | "system";
 export type UiTheme = "default" | "high-contrast";
 
 export interface UiToolCard {
@@ -18,6 +20,7 @@ export interface UiMessage {
   id: string;
   role: UiMessageRole;
   content: string;
+  advisorSeverity?: AdvisorSeverity;
   imageCount?: number;
   thinking?: string;
   thinkingExpanded?: boolean;
@@ -39,8 +42,9 @@ export interface UiExtensionContribution {
 }
 
 export interface UiAgentTranscriptLine {
-  role: "user" | "assistant" | "tool";
+  role: "user" | "assistant" | "advisor" | "tool";
   content: string;
+  advisorSeverity?: AdvisorSeverity;
 }
 
 export interface UiAgentIndicator {

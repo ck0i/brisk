@@ -28,6 +28,8 @@ describe("configuration", () => {
         "permissionMode": "safe",
         "effort": "high",
         "subtaskEffort": "low",
+        "advisorModel": "anthropic/reviewer",
+        "subtaskAdvisorModel": "off",
         "ui": { "theme": "high-contrast", },
       }`,
       "/config/global.jsonc",
@@ -38,6 +40,8 @@ describe("configuration", () => {
       permissionMode: "safe",
       effort: "high",
       subtaskEffort: "low",
+      advisorModel: "anthropic/reviewer",
+      subtaskAdvisorModel: "off",
       ui: { theme: "high-contrast" },
     });
   });

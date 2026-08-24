@@ -10,6 +10,7 @@ import { ChildSession } from "./child-session.ts";
 import { parseTaskInput } from "./result.ts";
 import { createCompleteTaskTool, createTaskTool } from "./task-tool.ts";
 import type {
+  ChildAdvisorAttachment,
   CheckpointFactory,
   ChildProviderContext,
   ChildSessionInfo,
@@ -33,6 +34,7 @@ export class SubagentManager {
   private readonly additionalSystemPrompt: readonly string[];
   private readonly childSessionFactory: SubagentManagerOptions["childSessionFactory"];
   private readonly childToolsFactory: SubagentManagerOptions["childToolsFactory"];
+  private readonly childAdvisorFactory: SubagentManagerOptions["childAdvisorFactory"];
   private readonly onChildFinished: SubagentManagerOptions["onChildFinished"];
   private readonly createChildSessionId: () => string;
   private readonly semaphore: Semaphore;
@@ -51,6 +53,7 @@ export class SubagentManager {
     this.additionalSystemPrompt = [...(options.additionalSystemPrompt ?? [])];
     this.childSessionFactory = options.childSessionFactory;
     this.childToolsFactory = options.childToolsFactory;
+    this.childAdvisorFactory = options.childAdvisorFactory;
     this.onChildFinished = options.onChildFinished;
     this.createChildSessionId = options.createChildSessionId ?? randomUUID;
     this.semaphore = new Semaphore(options.maxConcurrency ?? 3);
@@ -265,6 +268,7 @@ export class SubagentManager {
     let release: (() => void) | undefined;
     let provider: Provider | undefined;
     let result: TaskResult | undefined;
+    let advisor: ChildAdvisorAttachment | undefined;
     let cancelled = false;
     try {
       release = await this.semaphore.acquire(session.controller.signal);
@@ -323,7 +327,13 @@ export class SubagentManager {
         stopWhen: () => completion.capture.result !== undefined,
       });
       session.attach(loop, () => this.publish(session));
+      advisor = await this.childAdvisorFactory?.(providerContext, loop);
+      throwIfAborted(session.controller.signal);
       await loop.submit(session.input.description);
+      if (advisor?.waitForIdle) {
+        await waitWithSignal(advisor.waitForIdle(), session.controller.signal);
+        await waitWithSignal(loop.waitForIdle(), session.controller.signal);
+      }
 
       if (session.controller.signal.aborted) {
         cancelled = true;
@@ -345,6 +355,7 @@ export class SubagentManager {
         };
       }
     } finally {
+      advisor?.dispose();
       provider?.close?.();
       release?.();
     }

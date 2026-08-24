@@ -31,9 +31,9 @@ The UI owns terminal I/O and shutdown; runtime coordinates services.
 
 ## Agent loop
 
-`AgentLoop` streams normalized provider events. User input uses a FIFO queue; steering aborts the in-flight request. Each turn: derive context → system prompt + `AGENTS.md` + tools → provider response → tool execution (validated via `ToolRegistry`) → repeat until no tool calls. Failed tool batches roll back incomplete assistant/tool state. One forced compaction retry on context overflow.
+`AgentLoop` streams normalized provider events. User input uses a FIFO queue; steering aborts the in-flight request. Each turn: derive context → system prompt + `AGENTS.md` + tools → provider response → tool execution (validated via `ToolRegistry`) → fold pending advisor notes at the step boundary → repeat until no tool calls. Failed tool batches roll back incomplete assistant/tool state. One forced compaction retry on context overflow.
 
-`AgentUiController` and `AgentSessionRecorder` subscribe independently; neither depends on OpenTUI.
+`AgentUiController` and `AgentSessionRecorder` subscribe independently; neither depends on OpenTUI. An optional isolated `AdvisorRuntime` reviews incremental transcript deltas with read-only tools. Only its validated `advise` tool can inject output: nits wait for a step boundary, concerns/blockers steer live model responses, and no advice aborts a tool already executing.
 
 First-class modes are coordinated by the runtime rather than extension hooks: `/loop` resubmits a captured prompt after root-loop idle events; `/goal` persists mode state in session JSONL, injects a fresh objective reminder, and owns the built-in `goal` tool; `/btw` runs a non-persistent isolated provider loop with a read-only tool registry and its own TUI overlay.
 
@@ -57,7 +57,7 @@ MCP catalogs stay host-side. The provider receives a stable search/describe/call
 
 ## Subagents and patch isolation
 
-`task` captures an immutable checkpoint, runs a child `AgentLoop`, returns immediately. Research children use read/search tools; patch children edit a **virtual overlay** and return a unified diff (never auto-applied to the workspace). Concurrency and depth are config-bounded.
+`task` captures an immutable checkpoint, runs a child `AgentLoop`, returns immediately. Research children use read/search tools; patch children edit a **virtual overlay** and return a unified diff (never auto-applied to the workspace). Concurrency and depth are config-bounded. When configured, every child attaches its own isolated advisor; the child advisor model may override or inherit the root advisor model.
 
 ## Security (application-level)
 

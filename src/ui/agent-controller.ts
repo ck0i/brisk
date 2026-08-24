@@ -84,7 +84,16 @@ export class AgentUiController {
           break;
         }
         case "user_message":
-          if (event.message.internal) break;
+          if (event.message.internal === "goal-control") break;
+          if (event.message.internal === "advisor" && event.message.advisor) {
+            messages.push({
+              id: crypto.randomUUID(),
+              role: "advisor",
+              content: event.message.advisor.note,
+              advisorSeverity: event.message.advisor.severity,
+            });
+            break;
+          }
           messages.push({
             id: crypto.randomUUID(),
             role: "user",

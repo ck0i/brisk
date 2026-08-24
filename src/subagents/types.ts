@@ -1,4 +1,4 @@
-import type { AgentContextLifecycle } from "../core/agent-loop.ts";
+import type { AgentContextLifecycle, AgentLoop } from "../core/agent-loop.ts";
 import type { JsonValue, Message, Usage } from "../core/messages.ts";
 import type { Provider } from "../providers/types.ts";
 import type { ToolRegistry } from "../tools/registry.ts";
@@ -83,6 +83,11 @@ export type CheckpointFactory = (
   context: CheckpointFactoryContext,
 ) => readonly Message[] | Promise<readonly Message[]>;
 
+export interface ChildAdvisorAttachment {
+  waitForIdle?(): Promise<void>;
+  dispose(): void;
+}
+
 export interface SubagentManagerOptions {
   readonly checkpointStore: import("./checkpoint.ts").CheckpointStore;
   readonly createCheckpoint: CheckpointFactory;
@@ -99,6 +104,10 @@ export interface SubagentManagerOptions {
     context: ChildSessionAdapterContext,
   ) => ChildSessionAdapter | Promise<ChildSessionAdapter>;
   readonly childToolsFactory?: (context: ChildToolContext) => ToolRegistry | Promise<ToolRegistry>;
+  readonly childAdvisorFactory?: (
+    context: ChildProviderContext,
+    loop: AgentLoop,
+  ) => ChildAdvisorAttachment | undefined | Promise<ChildAdvisorAttachment | undefined>;
   readonly onChildFinished?: (info: ChildSessionInfo) => void | Promise<void>;
   readonly createChildSessionId?: () => string;
 }

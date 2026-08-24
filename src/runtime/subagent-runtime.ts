@@ -2,10 +2,12 @@ import type { BriskConfig, EffortSetting } from "../config/schema.ts";
 import { ContextManager } from "../context/context-manager.ts";
 import type { ContextModel } from "../context/types.ts";
 import type { AgentLoop } from "../core/agent-loop.ts";
-import type { JsonValue, Message } from "../core/messages.ts";
+import type { JsonValue, Message, Usage } from "../core/messages.ts";
 import { FakeProvider } from "../providers/fake-provider.ts";
 import type { IsolatedProviderSelection, ProviderService } from "../providers/provider-service.ts";
+import { redactedErrorMessage } from "../providers/secret-redaction.ts";
 import type { SessionRuntime } from "./session-runtime.ts";
+import { ADVISOR_READ_ONLY_TOOL_NAMES, AdvisorRuntime } from "./advisor-runtime.ts";
 import { ArtifactStore } from "../tools/artifact-store.ts";
 import type { ApprovalHandler, PermissionManager } from "../tools/approval.ts";
 import { registerCodingTools } from "../tools/coding-tools.ts";
@@ -21,6 +23,7 @@ import { parseTaskInput, serializeTaskResult } from "../subagents/result.ts";
 import { SUBAGENT_TASK_TIMEOUT_MS, taskInputSchema } from "../subagents/task-tool.ts";
 import type {
   ChildSessionAdapter,
+  ChildProviderContext,
   ChildSessionAdapterContext,
   ChildSessionInfo,
   ChildToolContext,
@@ -51,6 +54,7 @@ export interface RuntimeSubagentsOptions {
   readonly defaultModel: string;
   readonly defaultEffort: EffortSetting;
   readonly maxConcurrency: number;
+  readonly defaultAdvisorModel?: string;
   readonly maxDepth: number;
   readonly permissionMode: "safe" | "write" | "yolo";
   readonly approvalHandler: ApprovalHandler;
@@ -76,6 +80,7 @@ export class RuntimeSubagents {
   private readonly removeStatusListener: () => void;
   private readonly removeDecisionHandler: () => void;
   private defaultEffort: EffortSetting;
+  private defaultAdvisorModel: string | undefined;
   private disposed = false;
 
   private constructor(
@@ -84,6 +89,7 @@ export class RuntimeSubagents {
   ) {
     this.manager = manager;
     this.defaultEffort = options.defaultEffort;
+    this.defaultAdvisorModel = options.defaultAdvisorModel;
     this.removeStatusListener = manager.subscribe((info) => this.publish(info));
     this.removeDecisionHandler = options.store.setAgentDecisionHandler((id, decision) => {
       if (decision === "cancel") manager.cancel(id);
@@ -149,6 +155,8 @@ export class RuntimeSubagents {
         if (!runtime) throw new Error("Subagent runtime is not initialized");
         return await runtime.createChildTools(context);
       },
+      childAdvisorFactory: async (context, loop) =>
+        await runtime?.createChildAdvisor(context, loop),
       onChildFinished: async (info) => {
         childContextModels.delete(info.childSessionId);
         await runtime?.finishChild(info);
@@ -164,6 +172,10 @@ export class RuntimeSubagents {
 
   setDefaultEffort(effort: EffortSetting): void {
     this.defaultEffort = effort;
+  }
+
+  setDefaultAdvisorModel(model: string | undefined): void {
+    this.defaultAdvisorModel = model;
   }
 
   openPanel(): boolean {
@@ -294,6 +306,77 @@ export class RuntimeSubagents {
         notice: `Unable to persist subagent cost: ${errorMessage(error)}`,
       });
     }
+  }
+
+  private async createChildAdvisor(
+    context: ChildProviderContext,
+    primary: AgentLoop,
+  ): Promise<AdvisorRuntime | undefined> {
+    const model = this.defaultAdvisorModel;
+    if (!model || this.options.fakeProvider || !this.options.providerService) return undefined;
+
+    let selection: IsolatedProviderSelection | undefined;
+    try {
+      selection = this.options.providerService.createIsolatedProvider(
+        model,
+        `${context.childSessionId}-advisor`,
+        this.defaultEffort,
+      );
+      const tools = new ToolRegistry();
+      await registerCodingTools(tools, {
+        workspace: this.options.workspace,
+        artifactsDirectory: `${this.options.artifactsDirectory}/${context.childSessionId}/advisor`,
+        permissionMode: this.options.permissionMode,
+        approvalHandler: this.options.approvalHandler,
+        enabledTools: [...ADVISOR_READ_ONLY_TOOL_NAMES],
+      });
+      const compaction = this.options.compaction;
+      const advisorContext = new ContextManager({
+        model: contextModelForChild(selection),
+        ...(compaction === undefined
+          ? {}
+          : {
+              recentTargetTokens: compaction.keepRecentTokens,
+              automaticCompaction: compaction.enabled,
+              thresholdPercent: compaction.thresholdPercent / 100,
+            }),
+      });
+      const advisorProvider = selection.provider;
+      return new AdvisorRuntime({
+        primary,
+        provider: advisorProvider,
+        model: selection.modelSpecifier,
+        tools,
+        contextLifecycle: advisorContext,
+        ...(this.options.agentInstructionPrompts === undefined
+          ? {}
+          : { additionalSystemPrompt: this.options.agentInstructionPrompts }),
+        onError: (error) => {
+          this.options.store.update({
+            notice: `Subagent advisor unavailable: ${redactedErrorMessage(error)}`,
+          });
+        },
+        onUsage: (usage) => this.recordAdvisorUsage(usage),
+        close: () => advisorProvider.close?.(),
+      });
+    } catch (error) {
+      selection?.provider.close?.();
+      this.options.store.update({
+        notice: `Subagent advisor failed to start: ${redactedErrorMessage(error)}`,
+      });
+      return undefined;
+    }
+  }
+
+  private recordAdvisorUsage(usage: Usage): void {
+    const cost = usage.cost ?? 0;
+    if (!Number.isFinite(cost) || cost <= 0) return;
+    this.options.store.update({ cost: this.options.store.snapshot.cost + cost });
+    void this.options.session.recordSubagentCost(cost).catch((error: unknown) => {
+      this.options.store.update({
+        notice: `Unable to persist advisor cost: ${redactedErrorMessage(error)}`,
+      });
+    });
   }
 
   private async createChildTools(context: ChildToolContext): Promise<ToolRegistry> {
@@ -433,10 +516,15 @@ function toUiAgent(info: ChildSessionInfo): UiAgentIndicator {
     inputTokens: info.usage.inputTokens,
     outputTokens: info.usage.outputTokens,
     activityEvents: info.activityEvents,
-    transcript: info.transcript.map((message) => ({
-      role: message.role,
-      content: message.content,
-    })),
+    transcript: info.transcript.map((message) =>
+      message.role === "user" && message.internal === "advisor" && message.advisor
+        ? {
+            role: "advisor" as const,
+            content: message.advisor.note,
+            advisorSeverity: message.advisor.severity,
+          }
+        : { role: message.role, content: message.content },
+    ),
     ...(summary === undefined ? {} : { summary }),
     ...(info.status === "failed" && summary ? { error: summary } : {}),
   };

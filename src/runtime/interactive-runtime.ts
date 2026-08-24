@@ -34,6 +34,7 @@ import {
   resolveEffortSetting,
   splitModelSpecifier,
   supportedEffortSettings,
+  type IsolatedProviderSelection,
   type ModelSelection,
 } from "../providers/provider-service.ts";
 import { registerCodingTools, type CodingToolServices } from "../tools/coding-tools.ts";
@@ -42,6 +43,7 @@ import { ToolRegistry } from "../tools/registry.ts";
 import type { TuiRuntime } from "../app.tsx";
 import { RuntimeExtensions } from "./extension-runtime.ts";
 import { BtwRuntime } from "./btw-runtime.ts";
+import { ADVISOR_READ_ONLY_TOOL_NAMES, AdvisorRuntime } from "./advisor-runtime.ts";
 import { GoalRuntime } from "./goal-runtime.ts";
 import { LoopRuntime } from "./loop-runtime.ts";
 import { SessionRuntime } from "./session-runtime.ts";
@@ -78,6 +80,7 @@ export class InteractiveRuntime {
   private compactionController: AbortController | undefined;
   private agentInstructionPrompts: readonly string[] = [];
   private defaultSubtaskModel: string | undefined;
+  private advisor: AdvisorRuntime | undefined;
   private tools = new ToolRegistry();
   private codingServices: CodingToolServices | undefined;
   private subagents: RuntimeSubagents | undefined;
@@ -245,6 +248,8 @@ export class InteractiveRuntime {
     this.deferredIdleUnsubscribe = undefined;
     this.deferredOperations.length = 0;
     this.compactionController?.abort(new DOMException("Closing", "AbortError"));
+    this.advisor?.dispose();
+    this.advisor = undefined;
     await this.btw?.dispose();
     this.btw = undefined;
     this.loopMode?.detach();
@@ -622,7 +627,7 @@ export class InteractiveRuntime {
       await session.recordModelChange("fake", "brisk-demo");
     }
     this.store.update({ providerModel: "fake/brisk-demo", effort: "off", status: "ready" });
-    await this.initializeSubagents(defaultSubtaskModel);
+    await this.initializeSubagents(defaultSubtaskModel, undefined);
   }
 
   private async activateSelection(selection: ModelSelection): Promise<void> {
@@ -661,15 +666,98 @@ export class InteractiveRuntime {
       await session.recordModelChange(selection.record.provider, selection.record.id);
     }
     const effort = providers.setEffort(this.configManager.current.effort);
+    const advisorModel = this.resolveAdvisorModel(
+      this.configManager.current.advisorModel,
+      "Advisor",
+    );
+    const subtaskAdvisorModel = this.resolveSubtaskAdvisorModel(advisorModel);
+    await this.initializeAdvisor(advisorModel);
     this.store.update({
       providerModel: selectedName,
       effort,
       contextWindow: selection.record.contextWindow ?? undefined,
       status: this.agentLoop?.active === true ? "model updated · next request" : "ready",
     });
-    await this.initializeSubagents(defaultSubtaskModel);
+    await this.initializeSubagents(defaultSubtaskModel, subtaskAdvisorModel);
     this.subagents?.setDefaultModel(defaultSubtaskModel);
     this.subagents?.setDefaultEffort(this.configManager.current.subtaskEffort);
+    this.subagents?.setDefaultAdvisorModel(subtaskAdvisorModel);
+  }
+
+  private resolveAdvisorModel(configured: string | undefined, label: string): string | undefined {
+    if (!configured) return undefined;
+    const candidate = this.providerService?.models.find(
+      (model) => `${model.provider}/${model.id}` === configured,
+    );
+    if (candidate?.available && candidate.supportsTools) return configured;
+    this.addSystem(
+      `${label} model \`${configured}\` is unavailable or lacks tool support; it will not be used.`,
+    );
+    return undefined;
+  }
+
+  private resolveSubtaskAdvisorModel(parentAdvisorModel: string | undefined): string | undefined {
+    const configured = this.configManager.current.subtaskAdvisorModel;
+    if (configured === "off") return undefined;
+    if (!configured) return parentAdvisorModel;
+    return this.resolveAdvisorModel(configured, "Subagent advisor") ?? parentAdvisorModel;
+  }
+
+  private async initializeAdvisor(model: string | undefined): Promise<void> {
+    this.advisor?.dispose();
+    this.advisor = undefined;
+    if (!model || this.options.command.fakeProvider) return;
+    const providers = this.providerService;
+    const primary = this.agentLoop;
+    const session = this.sessionRuntime;
+    if (!providers || !primary || !session) return;
+
+    let selection: IsolatedProviderSelection | undefined;
+    try {
+      selection = providers.createIsolatedProvider(
+        model,
+        `${session.sessionId}-advisor`,
+        this.configManager.current.subtaskEffort,
+      );
+      const tools = new ToolRegistry();
+      await registerCodingTools(tools, {
+        workspace: this.options.workspace,
+        artifactsDirectory: `${session.artifactDirectory}/advisor`,
+        permissionMode: this.configManager.current.permissionMode,
+        approvalHandler: this.approvalController,
+        enabledTools: [...ADVISOR_READ_ONLY_TOOL_NAMES],
+      });
+      const advisorContext = new ContextManager({
+        model: contextModelForIsolatedSelection(selection),
+        recentTargetTokens: this.configManager.current.compaction.keepRecentTokens,
+        automaticCompaction: this.configManager.current.compaction.enabled,
+        thresholdPercent: this.configManager.current.compaction.thresholdPercent / 100,
+      });
+      const advisorProvider = selection.provider;
+      this.advisor = new AdvisorRuntime({
+        primary,
+        provider: advisorProvider,
+        model: selection.modelSpecifier,
+        tools,
+        contextLifecycle: advisorContext,
+        additionalSystemPrompt: this.agentInstructionPrompts,
+        onError: (error) => this.addSystem(`Advisor unavailable: ${redactedErrorMessage(error)}`),
+        onUsage: (usage) => this.recordAdvisorUsage(usage),
+        close: () => advisorProvider.close?.(),
+      });
+    } catch (error) {
+      selection?.provider.close?.();
+      this.addSystem(`Advisor failed to start: ${redactedErrorMessage(error)}`);
+    }
+  }
+
+  private recordAdvisorUsage(usage: import("../core/messages.ts").Usage): void {
+    const cost = usage.cost ?? 0;
+    if (!Number.isFinite(cost) || cost <= 0) return;
+    this.store.update({ cost: this.store.snapshot.cost + cost });
+    void this.sessionRuntime?.recordSubagentCost(cost).catch((error: unknown) => {
+      this.addSystem(`Unable to persist advisor cost: ${redactedErrorMessage(error)}`);
+    });
   }
 
   private resolveDefaultSubtaskModel(parentModel: string): string {
@@ -685,7 +773,10 @@ export class InteractiveRuntime {
     return parentModel;
   }
 
-  private async initializeSubagents(defaultModel: string): Promise<void> {
+  private async initializeSubagents(
+    defaultModel: string,
+    defaultAdvisorModel: string | undefined,
+  ): Promise<void> {
     if (this.subagents) return;
     if (
       this.configManager.current.maxSubagents === 0 ||
@@ -706,6 +797,7 @@ export class InteractiveRuntime {
       artifactsDirectory: this.paths.artifactsDir,
       defaultModel,
       defaultEffort: this.configManager.current.subtaskEffort,
+      ...(defaultAdvisorModel === undefined ? {} : { defaultAdvisorModel }),
       maxConcurrency: this.configManager.current.maxSubagents,
       maxDepth: this.configManager.current.maxSubagentDepth,
       permissionMode: this.configManager.current.permissionMode,
@@ -853,6 +945,8 @@ export class InteractiveRuntime {
     await this.btw?.close();
     this.loopMode?.detach();
     this.goalMode?.detachAgent();
+    this.advisor?.dispose();
+    this.advisor = undefined;
     this.subagents?.dispose();
     this.subagents = undefined;
     this.controller?.cancel();
@@ -1259,6 +1353,13 @@ export class InteractiveRuntime {
           config.defaultSubtaskModel,
           true,
         );
+      case "advisorModel":
+        return await this.changeAdvisorModelSetting("advisorModel", config.advisorModel);
+      case "subtaskAdvisorModel":
+        return await this.changeAdvisorModelSetting(
+          "subtaskAdvisorModel",
+          config.subtaskAdvisorModel,
+        );
       case "effort":
         return await this.changeConfiguredEffort(false);
       case "subtaskEffort":
@@ -1379,6 +1480,47 @@ export class InteractiveRuntime {
         );
       }
     }
+    return true;
+  }
+
+  private async changeAdvisorModelSetting(
+    field: "advisorModel" | "subtaskAdvisorModel",
+    current: string | undefined,
+  ): Promise<boolean> {
+    const subtask = field === "subtaskAdvisorModel";
+    const models = (this.providerService?.models ?? []).filter(
+      (model) => model.available && model.supportsTools,
+    );
+    const selected = await this.pickerController.choose({
+      title: subtask ? "Subagent advisor model" : "Advisor model",
+      selectedId: current ?? (subtask ? "inherit" : "off"),
+      searchable: true,
+      searchPlaceholder: "Search tool-capable models…",
+      options: [
+        ...(subtask
+          ? [
+              {
+                id: "inherit",
+                label: "Inherit main advisor",
+                description: "use the main session's configured advisor model",
+              },
+            ]
+          : []),
+        { id: "off", label: "Disabled", description: "do not run an advisor" },
+        ...models.map((model) => ({
+          id: `${model.provider}/${model.id}`,
+          label: `${model.provider}/${model.id}`,
+          searchText: model.name,
+          description:
+            model.contextWindow === null
+              ? model.api
+              : `${model.contextWindow.toLocaleString()} context · ${model.api}`,
+        })),
+      ],
+    });
+    if (selected === undefined) return false;
+    const value = selected === "inherit" || (!subtask && selected === "off") ? undefined : selected;
+    await this.saveGlobalSetting([field], value);
     return true;
   }
 
@@ -1787,6 +1929,19 @@ function settingsOptions(config: BriskConfig): readonly {
       label: "Default subtask model",
       description: config.defaultSubtaskModel ?? "inherit active parent model",
     },
+    {
+      id: "advisorModel",
+      label: "Advisor model",
+      description: config.advisorModel ?? "disabled",
+    },
+    {
+      id: "subtaskAdvisorModel",
+      label: "Subagent advisor model",
+      description:
+        config.subtaskAdvisorModel === "off"
+          ? "disabled"
+          : (config.subtaskAdvisorModel ?? "inherit main advisor"),
+    },
     { id: "effort", label: "Main agent effort", description: config.effort },
     {
       id: "subtaskEffort",
@@ -1848,7 +2003,16 @@ function uiMessagesFromHistory(messages: readonly Message[]): UiMessage[] {
 
   for (const [index, message] of messages.entries()) {
     if (message.role === "user") {
-      if (message.internal) continue;
+      if (message.internal === "goal-control") continue;
+      if (message.internal === "advisor" && message.advisor) {
+        visible.push({
+          id: `history-advisor-${index}`,
+          role: "advisor",
+          content: message.advisor.note,
+          advisorSeverity: message.advisor.severity,
+        });
+        continue;
+      }
       visible.push({
         id: `history-user-${index}`,
         role: "user",
@@ -1915,6 +2079,16 @@ function contextModelForSelection(selection: ModelSelection): ContextModel {
     provider: selection.record.provider,
     api: selection.upstream.api,
     model: modelName(selection),
+    contextWindow: selection.record.contextWindow,
+    supportsImages: selection.record.input.includes("image"),
+  };
+}
+
+function contextModelForIsolatedSelection(selection: IsolatedProviderSelection): ContextModel {
+  return {
+    provider: selection.record.provider,
+    api: selection.upstream.api,
+    model: selection.modelSpecifier,
     contextWindow: selection.record.contextWindow,
     supportsImages: selection.record.input.includes("image"),
   };

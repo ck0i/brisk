@@ -6,6 +6,8 @@ import {
   type ProviderEvent,
 } from "./events.ts";
 import type {
+  AdvisorMessage,
+  AdvisorSeverity,
   AssistantMessage,
   ImageContent,
   Message,
@@ -72,6 +74,7 @@ interface PendingTurn {
   readonly text: string;
   readonly images?: readonly ImageContent[];
   readonly internal?: UserMessage["internal"];
+  readonly advisor?: AdvisorMessage;
   readonly resolve: () => void;
   readonly reject: (error: NormalizedProviderError) => void;
 }
@@ -108,6 +111,8 @@ export class AgentLoop {
   private readonly history: Message[];
   private readonly listeners = new Set<AgentEventListener>();
   private readonly pending: PendingTurn[] = [];
+  private readonly pendingAdvice: UserMessage[] = [];
+  private phase: "provider" | "tools" | undefined;
   private activeController: AbortController | undefined;
   private draining = false;
   private accumulatedUsage: Usage;
@@ -163,6 +168,25 @@ export class AgentLoop {
     this.contextLifecycle?.modelChanged?.(model);
   }
 
+  waitForIdle(): Promise<void> {
+    if (!this.draining && !this.activeController && this.pending.length === 0) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const unsubscribe = this.subscribe((event) => {
+        if (
+          event.type === "idle" &&
+          !this.draining &&
+          !this.activeController &&
+          this.pending.length === 0
+        ) {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  }
+
   subscribe(listener: AgentEventListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -172,9 +196,36 @@ export class AgentLoop {
     return this.enqueue(text, undefined, images);
   }
 
-  /** Queue a persisted Brisk control turn without exposing it as a user-authored UI message. */
+  /** Queue a persisted Brisk control turn without exposing it as user-authored input. */
   submitInternal(text: string, internal: NonNullable<UserMessage["internal"]>): Promise<void> {
     return this.enqueue(text, internal);
+  }
+
+  /** Deliver reviewer guidance without letting the advisor mutate primary state directly. */
+  deliverAdvice(note: string, severity: AdvisorSeverity = "nit"): void {
+    const normalized = note.trim();
+    if (normalized.length === 0) return;
+    const advisor: AdvisorMessage = { note: normalized, severity };
+    const content = renderAdvisory(advisor);
+
+    // Interrupting advice may steer an in-flight model response, but never abort a
+    // tool that is already running. Tool-time advice is folded at the next boundary.
+    if ((severity === "concern" || severity === "blocker") && this.phase === "provider") {
+      const completion = this.enqueue(content, "advisor", undefined, advisor);
+      void completion.catch(() => undefined);
+      this.activeController?.abort(new DOMException("Advisor steering", "AbortError"));
+      return;
+    }
+    if (this.activeController) {
+      this.pendingAdvice.push({ role: "user", content, internal: "advisor", advisor });
+      return;
+    }
+    if (severity === "blocker") {
+      const completion = this.enqueue(content, "advisor", undefined, advisor);
+      void completion.catch(() => undefined);
+      return;
+    }
+    this.appendUserMessage({ role: "user", content, internal: "advisor", advisor });
   }
 
   steer(text: string, images?: readonly ImageContent[]): Promise<void> {
@@ -192,6 +243,7 @@ export class AgentLoop {
     text: string,
     internal?: UserMessage["internal"],
     images?: readonly ImageContent[],
+    advisor?: AdvisorMessage,
   ): Promise<void> {
     if (text.length === 0 && (images?.length ?? 0) === 0) {
       return Promise.reject(new TypeError("Message cannot be empty"));
@@ -202,6 +254,7 @@ export class AgentLoop {
         text,
         ...(internal === undefined ? {} : { internal }),
         ...(images === undefined || images.length === 0 ? {} : { images: [...images] }),
+        ...(advisor === undefined ? {} : { advisor }),
         resolve,
         reject: (error) => reject(error),
       });
@@ -224,9 +277,9 @@ export class AgentLoop {
           content: pending.text,
           ...(pending.images === undefined ? {} : { images: pending.images }),
           ...(pending.internal === undefined ? {} : { internal: pending.internal }),
+          ...(pending.advisor === undefined ? {} : { advisor: pending.advisor }),
         };
-        this.history.push(userMessage);
-        this.publish({ type: "user_message", message: userMessage });
+        this.appendUserMessage(userMessage);
 
         const controller = new AbortController();
         this.activeController = controller;
@@ -234,6 +287,7 @@ export class AgentLoop {
           await this.runTurn(controller.signal);
           pending.resolve();
         } catch (error) {
+          this.pendingAdvice.length = 0;
           const normalized = normalizeProviderError(error);
           if (controller.signal.aborted || normalized.kind === "aborted" || isAbortError(error)) {
             this.publish({ type: "cancelled" });
@@ -256,8 +310,14 @@ export class AgentLoop {
   private async runTurn(signal: AbortSignal): Promise<void> {
     while (true) {
       throwIfAborted(signal);
-      const { assistant, providerToolResults, resolvedToolCallIds, stopReason } =
-        await this.collectResponse(signal);
+      this.phase = "provider";
+      let response: CollectedResponse;
+      try {
+        response = await this.collectResponse(signal);
+      } finally {
+        if (this.phase === "provider") this.phase = undefined;
+      }
+      const { assistant, providerToolResults, resolvedToolCallIds, stopReason } = response;
       throwIfAborted(signal);
       this.accumulatedUsage = addUsage(this.accumulatedUsage, assistant.usage);
       if (assistant.usage) this.contextLifecycle?.observeUsage?.(assistant.usage);
@@ -265,7 +325,10 @@ export class AgentLoop {
       const historyStart = this.history.length;
       this.history.push(assistant);
       this.publish({ type: "assistant_message", message: assistant });
-      if (assistant.toolCalls.length === 0) return;
+      if (assistant.toolCalls.length === 0) {
+        this.flushPendingAdvice();
+        return;
+      }
 
       try {
         const providerResults = new Map(
@@ -279,7 +342,13 @@ export class AgentLoop {
         const pendingCalls = assistant.toolCalls.filter(
           (call) => !resolvedToolCallIds.has(call.id),
         );
-        const localResults = await this.executeToolCalls(pendingCalls, signal);
+        this.phase = "tools";
+        let localResults: ToolResultMessage[];
+        try {
+          localResults = await this.executeToolCalls(pendingCalls, signal);
+        } finally {
+          if (this.phase === "tools") this.phase = undefined;
+        }
         const results = new Map(providerResults);
         for (const result of localResults) results.set(result.toolCallId, result);
         throwIfAborted(signal);
@@ -289,8 +358,9 @@ export class AgentLoop {
           this.history.push(result);
           this.publish({ type: "tool_result", message: result });
         }
-        if (this.stopWhen?.() === true) return;
-        if (pendingCalls.length === 0 && stopReason !== "tool_call") return;
+        const interruptingAdvice = this.flushPendingAdvice();
+        if (!interruptingAdvice && this.stopWhen?.() === true) return;
+        if (!interruptingAdvice && pendingCalls.length === 0 && stopReason !== "tool_call") return;
       } catch (error) {
         this.history.splice(historyStart);
         throw error;
@@ -567,14 +637,56 @@ export class AgentLoop {
     signal: AbortSignal,
   ): Promise<ToolResultMessage> {
     const dispatched = dispatchName ? { ...call, name: dispatchName } : call;
-    const [result] = await this.executeToolCalls([dispatched], signal, call);
-    if (!result) throw new Error(`Provider tool ${call.id} produced no result`);
-    return { ...result, toolCallId: call.id, name: call.name };
+    const previousPhase = this.phase;
+    this.phase = "tools";
+    try {
+      const [result] = await this.executeToolCalls([dispatched], signal, call);
+      if (!result) throw new Error(`Provider tool ${call.id} produced no result`);
+      return { ...result, toolCallId: call.id, name: call.name };
+    } finally {
+      if (this.phase === "tools") this.phase = previousPhase;
+    }
+  }
+
+  private appendUserMessage(message: UserMessage): void {
+    this.history.push(message);
+    this.publish({ type: "user_message", message });
+  }
+
+  /** Append deferred advice in arrival order and report whether it should keep the loop alive. */
+  private flushPendingAdvice(): boolean {
+    let interrupting = false;
+    for (const message of this.pendingAdvice.splice(0)) {
+      this.appendUserMessage(message);
+      if (message.advisor?.severity === "concern" || message.advisor?.severity === "blocker") {
+        interrupting = true;
+      }
+    }
+    return interrupting;
   }
 
   private publish(event: AgentEvent): void {
     for (const listener of this.listeners) listener(event);
   }
+}
+
+function renderAdvisory(advice: AdvisorMessage): string {
+  const guidance =
+    advice.severity === "nit"
+      ? "consider at the next convenient step"
+      : advice.severity === "concern"
+        ? "weigh before continuing; do not follow blindly"
+        : "stop and resolve before continuing";
+  return `<advisory severity="${advice.severity}" guidance="${guidance}">\n${escapeXml(advice.note)}\n</advisory>`;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
 }
 
 function invalidResponse(message: string): NormalizedProviderError {

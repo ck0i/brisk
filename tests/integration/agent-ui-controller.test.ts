@@ -52,6 +52,25 @@ describe("AgentUiController", () => {
     expect(store.snapshot.status).toBe("ready");
   });
 
+  test("renders advisor injections as advisor cards rather than synthetic user input", async () => {
+    const store = new UiStore("fixture");
+    const loop = new AgentLoop({ provider: new FakeProvider([]), model: "fake" });
+    const controller = new AgentUiController(loop, store, 4);
+
+    loop.deliverAdvice("Verify the resumed-session path.", "concern");
+    await settleFrames();
+    controller.dispose();
+
+    expect(store.snapshot.messages).toEqual([
+      expect.objectContaining({
+        role: "advisor",
+        content: "Verify the resumed-session path.",
+        advisorSeverity: "concern",
+      }),
+    ]);
+    expect(store.snapshot.messages[0]?.content).not.toContain("<advisory");
+  });
+
   test("shows current context rather than cumulative usage and excludes cache counters", async () => {
     const store = new UiStore("fixture");
     const loop = new AgentLoop({

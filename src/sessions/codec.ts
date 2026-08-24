@@ -448,7 +448,15 @@ function parseUserMessage(value: unknown): UserMessage | undefined {
     return undefined;
   }
   if (!isOptionalFiniteNumber(value.timestamp)) return undefined;
-  if (value.internal !== undefined && value.internal !== "goal-control") return undefined;
+  if (
+    value.internal !== undefined &&
+    value.internal !== "goal-control" &&
+    value.internal !== "advisor"
+  ) {
+    return undefined;
+  }
+  const advisor = parseAdvisorMessage(value.advisor);
+  if ((value.internal === "advisor") !== (advisor !== undefined)) return undefined;
   if (value.images !== undefined && !Array.isArray(value.images)) return undefined;
   const images: ImageContent[] = [];
   for (const imageValue of value.images ?? []) {
@@ -462,7 +470,18 @@ function parseUserMessage(value: unknown): UserMessage | undefined {
     ...(images.length === 0 ? {} : { images }),
     ...(value.timestamp === undefined ? {} : { timestamp: value.timestamp }),
     ...(value.internal === undefined ? {} : { internal: value.internal }),
+    ...(advisor === undefined ? {} : { advisor }),
   };
+}
+
+function parseAdvisorMessage(value: unknown): UserMessage["advisor"] | undefined {
+  if (!isRecord(value) || typeof value.note !== "string" || value.note.trim().length === 0) {
+    return undefined;
+  }
+  if (value.severity !== "nit" && value.severity !== "concern" && value.severity !== "blocker") {
+    return undefined;
+  }
+  return { note: value.note, severity: value.severity };
 }
 
 function parseImageContent(value: unknown): ImageContent | undefined {

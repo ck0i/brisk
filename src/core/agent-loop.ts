@@ -220,12 +220,8 @@ export class AgentLoop {
       this.pendingAdvice.push({ role: "user", content, internal: "advisor", advisor });
       return;
     }
-    if (severity === "blocker") {
-      const completion = this.enqueue(content, "advisor", undefined, advisor);
-      void completion.catch(() => undefined);
-      return;
-    }
-    this.appendUserMessage({ role: "user", content, internal: "advisor", advisor });
+    const completion = this.enqueue(content, "advisor", undefined, advisor);
+    void completion.catch(() => undefined);
   }
 
   steer(text: string, images?: readonly ImageContent[]): Promise<void> {
@@ -326,7 +322,7 @@ export class AgentLoop {
       this.history.push(assistant);
       this.publish({ type: "assistant_message", message: assistant });
       if (assistant.toolCalls.length === 0) {
-        this.flushPendingAdvice();
+        if (this.flushPendingAdvice()) continue;
         return;
       }
 
@@ -358,9 +354,9 @@ export class AgentLoop {
           this.history.push(result);
           this.publish({ type: "tool_result", message: result });
         }
-        const interruptingAdvice = this.flushPendingAdvice();
-        if (!interruptingAdvice && this.stopWhen?.() === true) return;
-        if (!interruptingAdvice && pendingCalls.length === 0 && stopReason !== "tool_call") return;
+        const adviceDelivered = this.flushPendingAdvice();
+        if (!adviceDelivered && this.stopWhen?.() === true) return;
+        if (!adviceDelivered && pendingCalls.length === 0 && stopReason !== "tool_call") return;
       } catch (error) {
         this.history.splice(historyStart);
         throw error;
@@ -655,14 +651,9 @@ export class AgentLoop {
 
   /** Append deferred advice in arrival order and report whether it should keep the loop alive. */
   private flushPendingAdvice(): boolean {
-    let interrupting = false;
-    for (const message of this.pendingAdvice.splice(0)) {
-      this.appendUserMessage(message);
-      if (message.advisor?.severity === "concern" || message.advisor?.severity === "blocker") {
-        interrupting = true;
-      }
-    }
-    return interrupting;
+    const advice = this.pendingAdvice.splice(0);
+    for (const message of advice) this.appendUserMessage(message);
+    return advice.length > 0;
   }
 
   private publish(event: AgentEvent): void {

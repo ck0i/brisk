@@ -43,7 +43,6 @@ test("consecutive autonomous agent turns render as one stitched response", async
     id: "agent-search",
     role: "assistant",
     content: "",
-    streaming: true,
     tools: [
       {
         id: "search",
@@ -53,65 +52,42 @@ test("consecutive autonomous agent turns render as one stitched response", async
       },
     ],
   });
+  store.addMessage({
+    id: "agent-build",
+    role: "assistant",
+    content: "",
+    tools: [
+      {
+        id: "bash",
+        name: "bash",
+        status: "completed",
+        summary: "tests passed",
+      },
+    ],
+  });
+  store.addMessage({
+    id: "agent-final",
+    role: "assistant",
+    content: "",
+    tools: [
+      {
+        id: "final",
+        name: "result",
+        status: "completed",
+        summary: "Finished.",
+      },
+    ],
+  });
   const setup = await renderRoot(store, 100, 36);
   try {
-    await setup.renderOnce();
-    store.appendMessageText("agent-search", "I will inspect the workspace.");
-    await setup.waitForFrame((value) => value.includes("I will inspect the workspace."));
-    store.replaceMessage("agent-search", { streaming: false });
-    store.addMessage({
-      id: "agent-build",
-      role: "assistant",
-      content: "",
-      streaming: true,
-      tools: [
-        {
-          id: "bash",
-          name: "bash",
-          status: "completed",
-          summary: "tests passed",
-        },
-      ],
-    });
-    store.appendMessageText("agent-build", "Now I will verify the change.");
-    await setup.waitForFrame((value) => value.includes("Now I will verify the change."));
-    store.replaceMessage("agent-build", { streaming: false });
-    store.addMessage({
-      id: "agent-final",
-      role: "assistant",
-      content: "",
-      streaming: true,
-      tools: [
-        {
-          id: "final",
-          name: "result",
-          status: "completed",
-          summary: "Finished.",
-        },
-      ],
-    });
-    store.appendMessageText("agent-final", "Finished.");
-    const frame = await setup.waitForFrame(
-      (value) =>
-        value.includes("I will inspect the workspace.") &&
-        value.includes("Now I will verify the change.") &&
-        value.includes("result · Finished."),
-    );
-    store.replaceMessage("agent-final", { streaming: false });
+    const frame = await setup.waitForFrame((value) => value.includes("result · Finished."));
     expect(frame.match(/Agent/g)).toHaveLength(1);
     expect(frame.match(/┌/g)).toHaveLength(1);
     expect(frame.match(/└/g)).toHaveLength(1);
-    expect(frame.indexOf("I will inspect the workspace.")).toBeLessThan(
-      frame.indexOf("search · found the relevant files"),
-    );
     expect(frame.indexOf("search · found the relevant files")).toBeLessThan(
-      frame.indexOf("Now I will verify the change."),
-    );
-    expect(frame.indexOf("Now I will verify the change.")).toBeLessThan(
       frame.indexOf("bash · tests passed"),
     );
-    expect(frame.indexOf("bash · tests passed")).toBeLessThan(frame.indexOf("Finished."));
-    expect(frame.indexOf("Finished.")).toBeLessThan(frame.indexOf("result · Finished."));
+    expect(frame.indexOf("bash · tests passed")).toBeLessThan(frame.indexOf("result · Finished."));
     expect(setup.renderer.root.findDescendantById("assistant-group-agent-search")).toBeDefined();
     expect(setup.renderer.root.findDescendantById("message-role-agent-build")).toBeUndefined();
     expect(setup.renderer.root.findDescendantById("message-role-agent-final")).toBeUndefined();

@@ -54,10 +54,14 @@ describe("AgentUiController", () => {
 
   test("renders advisor injections as advisor cards rather than synthetic user input", async () => {
     const store = new UiStore("fixture");
-    const loop = new AgentLoop({ provider: new FakeProvider([]), model: "fake" });
+    const loop = new AgentLoop({
+      provider: new FakeProvider([{ text: "Verified and corrected the resumed-session path." }]),
+      model: "fake",
+    });
     const controller = new AgentUiController(loop, store, 4);
 
     loop.deliverAdvice("Verify the resumed-session path.", "concern");
+    await loop.waitForIdle();
     await settleFrames();
     controller.dispose();
 
@@ -66,6 +70,10 @@ describe("AgentUiController", () => {
         role: "advisor",
         content: "Verify the resumed-session path.",
         advisorSeverity: "concern",
+      }),
+      expect.objectContaining({
+        role: "assistant",
+        content: "Verified and corrected the resumed-session path.",
       }),
     ]);
     expect(store.snapshot.messages[0]?.content).not.toContain("<advisory");

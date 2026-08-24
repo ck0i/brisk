@@ -59,9 +59,40 @@ describe("advisor delivery", () => {
     expect(provider.requests[1]?.messages.at(-1)).toMatchObject({ internal: "advisor" });
   });
 
+  test("continues after a noninterrupting note reaches a terminal response", async () => {
+    const provider = new FakeProvider([
+      { delayMs: 20, text: "initial answer" },
+      { text: "answer improved after the nit" },
+    ]);
+    const loop = new AgentLoop({ provider, model: "fake/primary" });
+
+    const run = loop.submit("answer");
+    setTimeout(() => loop.deliverAdvice("Tighten the final explanation.", "nit"), 5);
+    await run;
+
+    expect(loop.messages.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(loop.messages.at(-2)).toMatchObject({
+      role: "user",
+      internal: "advisor",
+      advisor: { severity: "nit" },
+    });
+    expect(loop.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "answer improved after the nit",
+    });
+  });
+
   test("runs an isolated reviewer and exposes only advise tool output to the primary", async () => {
     const primary = new AgentLoop({
-      provider: new FakeProvider([{ text: "implementation complete" }]),
+      provider: new FakeProvider([
+        { text: "implementation complete" },
+        { text: "verification added after review" },
+      ]),
       model: "fake/primary",
     });
     const advisorProvider = new FakeProvider([
@@ -77,6 +108,7 @@ describe("advisor delivery", () => {
           },
         ],
       },
+      {},
     ]);
     const advisorTools = new ToolRegistry().register<JsonValue>({
       name: "inspect",
@@ -95,21 +127,26 @@ describe("advisor delivery", () => {
 
     await primary.submit("implement it");
     await advisor.waitForIdle();
-
-    expect(advisorProvider.requests).toHaveLength(1);
+    await primary.waitForIdle();
+    await advisor.waitForIdle();
+    expect(advisorProvider.requests).toHaveLength(2);
     expect(advisorProvider.requests[0]?.tools.map((tool) => tool.name)).toEqual([
       "inspect",
       "advise",
     ]);
     expect(advisorProvider.requests[0]?.systemPrompt.join("\n")).toContain("read-only reviewer");
     expect(advisorProvider.requests[0]?.messages[0]?.content).toContain("implementation complete");
-    expect(primary.messages.at(-1)).toMatchObject({
+    expect(primary.messages.at(-2)).toMatchObject({
       role: "user",
       internal: "advisor",
       advisor: {
         severity: "concern",
         note: "The completion skipped the requested verification.",
       },
+    });
+    expect(primary.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "verification added after review",
     });
     advisor.dispose();
   });
@@ -126,6 +163,7 @@ describe("advisor delivery", () => {
       provider: new FakeProvider([
         { toolCalls: [{ id: "inspect-1", name: "inspect" }] },
         { delayMs: 30, text: "step settled" },
+        { text: "edge case verified after review" },
       ]),
       model: "fake/primary",
       tools: primaryTools,
@@ -143,21 +181,24 @@ describe("advisor delivery", () => {
           ],
         },
         {},
+        {},
       ]),
       model: "fake/advisor",
     });
 
     await primary.submit("work");
     await advisor.waitForIdle();
+    await primary.waitForIdle();
+    await advisor.waitForIdle();
 
     expect(primary.messages.at(-2)).toMatchObject({
-      role: "assistant",
-      content: "step settled",
-    });
-    expect(primary.messages.at(-1)).toMatchObject({
       role: "user",
       internal: "advisor",
       advisor: { note: "Verify the edge case before handoff.", severity: "concern" },
+    });
+    expect(primary.messages.at(-1)).toMatchObject({
+      role: "assistant",
+      content: "edge case verified after review",
     });
     advisor.dispose();
   });
@@ -185,5 +226,29 @@ describe("advisor delivery", () => {
       advisor: { severity: "blocker" },
     });
     expect(loop.messages[2]).toMatchObject({ role: "assistant", content: "reconsidered" });
+  });
+
+  test("starts a corrective turn for every late advisor severity", async () => {
+    for (const severity of ["nit", "concern", "blocker"] as const) {
+      const provider = new FakeProvider([
+        { text: "initial response" },
+        { text: `addressed ${severity}` },
+      ]);
+      const loop = new AgentLoop({ provider, model: "fake/primary" });
+
+      await loop.submit("start");
+      loop.deliverAdvice(`Review note: ${severity}`, severity);
+      await loop.waitForIdle();
+
+      expect(loop.messages.at(-2)).toMatchObject({
+        role: "user",
+        internal: "advisor",
+        advisor: { severity },
+      });
+      expect(loop.messages.at(-1)).toMatchObject({
+        role: "assistant",
+        content: `addressed ${severity}`,
+      });
+    }
   });
 });

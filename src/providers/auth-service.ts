@@ -18,11 +18,17 @@ import { getOAuthProviders, type OAuthProviderInfo } from "@oh-my-pi/pi-ai/oauth
 import type { ApiKeyResolutionOptions, CredentialResolver } from "./pi-ai-provider.ts";
 import { redactedErrorMessage } from "./secret-redaction.ts";
 
+/**
+ * Providers the interactive login picker offers. Each id must exist upstream
+ * with a login flow; OpenCode Go pastes an API key instead of completing an
+ * OAuth callback.
+ */
 export const BUILT_IN_BRISK_OAUTH_PROVIDERS = [
   "anthropic",
   "openai-codex",
   "google-antigravity",
   "cursor",
+  "opencode-go",
 ] as const;
 
 export interface AuthPrompter {

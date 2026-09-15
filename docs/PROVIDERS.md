@@ -11,6 +11,7 @@ Set env vars in the shell that launches `brisk` (never in JSONC):
 | Anthropic API               | `ANTHROPIC_API_KEY`        |
 | OpenAI API                  | `OPENAI_API_KEY`           |
 | Gemini API                  | `GEMINI_API_KEY`           |
+| OpenCode Go API             | `OPENCODE_API_KEY`         |
 | Anthropic OAuth override    | `ANTHROPIC_OAUTH_TOKEN`    |
 | OpenAI Codex OAuth override | `OPENAI_CODEX_OAUTH_TOKEN` |
 | Cursor override             | `CURSOR_ACCESS_TOKEN`      |
@@ -21,7 +22,7 @@ Set env vars in the shell that launches `brisk` (never in JSONC):
 ## OAuth
 
 ```text
-brisk auth login anthropic | openai-codex | google-antigravity | cursor
+brisk auth login anthropic | openai-codex | google-antigravity | cursor | opencode-go
 brisk auth status
 brisk auth logout <provider>
 ```
@@ -31,6 +32,12 @@ brisk auth logout <provider>
 **IDs matter:** `openai-codex` is ChatGPT/Codex OAuth, not `openai/...` + `OPENAI_API_KEY`. `google-antigravity` is distinct from `google/...` + `GEMINI_API_KEY`.
 
 Some flows need a pasted callback URL or code when the browser cannot complete automatically.
+
+## OpenCode Go
+
+OpenCode Go is OpenCode's paid coding subscription ([opencode.ai/go](https://opencode.ai/go)). `brisk auth login opencode-go` and `/login` open [opencode.ai/auth](https://opencode.ai/auth) and store the API key you paste, so the flow ends with a stored key rather than an OAuth callback. `OPENCODE_API_KEY` is the equivalent environment fallback for the same subscription key.
+
+Select Go models as `opencode-go/<model-id>`, for example `opencode-go/kimi-k2.7-code`. `brisk models` prints the bundled Go catalog.
 
 ## Cursor Agent SDK
 

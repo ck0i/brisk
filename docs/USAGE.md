@@ -15,7 +15,7 @@ Policy presets (not OS sandboxes): `safe` prompts for writes and shell; `write` 
 | `/goal <objective>`                | Start an autonomous, persistent session goal                                 |
 | `/goal show`, `pause`, `resume`, … | Inspect or control the active goal (`resume` restores the last finished one) |
 | `/btw <question>`                  | Open a private read-only side thread while the main agent keeps running      |
-| `/login`, `/logout`                | OAuth in the TUI                                                             |
+| `/login`, `/logout`                | Provider sign-in in the TUI                                                  |
 | `/new`                             | New session in this workspace                                                |
 | `/sessions`, `/resume`             | Session picker (`Ctrl+O`)                                                    |
 | `/compact`, `/context`             | Compaction control and token estimate                                        |

@@ -61,7 +61,7 @@ export class WorkspacePaths {
 
   display(canonicalPath: string): string {
     const absolute = path.resolve(canonicalPath);
-    if (!isWithin(this.root, absolute)) return normalizeSeparators(absolute);
+    if (!isWithin(this.root, absolute)) return absolute;
     const relative = path.relative(this.root, absolute);
     return relative.length === 0 ? "." : normalizeSeparators(relative);
   }
@@ -92,9 +92,7 @@ export class WorkspacePaths {
     return {
       authoredPath,
       canonicalPath,
-      displayPath: insideWorkspace
-        ? this.display(canonicalPath)
-        : normalizeSeparators(canonicalPath),
+      displayPath: insideWorkspace ? this.display(canonicalPath) : canonicalPath,
       insideWorkspace,
     };
   }

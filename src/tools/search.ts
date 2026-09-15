@@ -6,6 +6,7 @@ import type { JsonSchema } from "../providers/types.ts";
 import type { ToolDefinition } from "./registry.ts";
 import {
   COMMON_GENERATED_DIRECTORIES,
+  displayRelative,
   isGeneratedPath,
   isHiddenPath,
   isIgnoredPath,
@@ -321,7 +322,7 @@ class RipgrepParser {
       throw new Error("ripgrep emitted an unsupported match record");
     }
     const absolutePath = resolve(this.workspace, pathValue);
-    const path = normalizeRelative(stableRelative(this.workspace, absolutePath));
+    const path = displayRelative(this.workspace, absolutePath);
     const text = textValue.replace(/\r?\n$/, "");
     if (value.type === "context") {
       return { kind: "context", value: { path, line: lineNumber, text } };
@@ -364,7 +365,7 @@ async function searchWithFallback(
     if (input.ignoreGenerated !== false && isGeneratedPath(matchPath)) continue;
     if (!matchesGlobs(matchPath, input.globs ?? [])) continue;
     if (isIgnoredPath(matchPath, false, ignoreRules)) continue;
-    files.push(normalizeRelative(stableRelative(workspace, absolutePath)));
+    files.push(displayRelative(workspace, absolutePath));
   }
   files.sort(comparePaths);
 

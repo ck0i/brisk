@@ -4,6 +4,7 @@ import type { JsonValue } from "../core/messages.ts";
 import type { JsonSchema } from "../providers/types.ts";
 import type { ToolDefinition } from "./registry.ts";
 import {
+  displayRelative,
   isGeneratedPath,
   isIgnoredPath,
   loadIgnoreRules,
@@ -64,7 +65,7 @@ export async function listFiles(
       throwIfAborted(options.signal);
       const absolutePath = resolve(location.path, child);
       const matchPath = normalizeRelative(stableRelative(ignoreRoot, absolutePath));
-      const displayPath = normalizeRelative(stableRelative(location.workspace, absolutePath));
+      const displayPath = displayRelative(location.workspace, absolutePath);
       if (displayPath === ".") continue;
       if (input.ignoreGenerated !== false && isGeneratedPath(matchPath)) continue;
       const stat = await lstat(absolutePath);

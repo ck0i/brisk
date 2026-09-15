@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { AgentLoop } from "../core/agent-loop.ts";
 import type { JsonValue, Message, Usage } from "../core/messages.ts";
 import { AgentSessionRecorder } from "../sessions/agent-recorder.ts";
@@ -113,7 +115,7 @@ export class SessionRuntime {
   }
 
   get artifactDirectory(): string {
-    return `${this.options.artifactsDir}/${this.sessionId}`;
+    return join(this.options.artifactsDir, this.sessionId);
   }
 
   get previousCompaction(): CompactionMetadata | undefined {

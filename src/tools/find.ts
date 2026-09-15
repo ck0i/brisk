@@ -4,10 +4,10 @@ import type { JsonValue } from "../core/messages.ts";
 import type { JsonSchema } from "../providers/types.ts";
 import type { ToolDefinition } from "./registry.ts";
 import {
+  displayRelative,
   isGeneratedPath,
   isIgnoredPath,
   loadIgnoreRules,
-  normalizeRelative,
   resolveWorkspacePath,
   stableRelative,
   throwIfAborted,
@@ -59,12 +59,12 @@ export async function findFiles(
       throwIfAborted(options.signal);
       const absolutePath = resolve(location.path, entry);
       const matchPath = stableRelative(ignoreRoot, absolutePath);
-      const displayPath = stableRelative(location.workspace, absolutePath);
+      const displayPath = displayRelative(location.workspace, absolutePath);
       if (displayPath === ".") continue;
       if (input.ignoreGenerated !== false && isGeneratedPath(matchPath)) continue;
       const stat = await lstat(absolutePath);
       if (isIgnoredPath(matchPath, stat.isDirectory(), ignoreRules)) continue;
-      found.add(normalizeRelative(displayPath));
+      found.add(displayPath);
     }
   }
 

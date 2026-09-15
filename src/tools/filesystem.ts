@@ -61,9 +61,20 @@ export function assertContained(root: string, candidate: string): void {
 
 export function stableRelative(root: string, path: string): string {
   const absolute = resolve(path);
-  if (!isContained(root, absolute)) return absolute.split(sep).join("/");
+  if (!isContained(root, absolute)) return absolute;
   const value = relative(root, absolute).split(sep).join("/");
   return value === "" ? "." : value;
+}
+
+/**
+ * Stable display path: workspace-relative targets use forward slashes so
+ * transcripts stay platform-independent; absolute targets outside the
+ * workspace keep the host's native separators so they can be pasted back into
+ * the shell.
+ */
+export function displayRelative(root: string, path: string): string {
+  const value = stableRelative(root, path);
+  return isAbsolute(value) ? value : normalizeRelative(value);
 }
 
 function isContained(root: string, candidate: string): boolean {

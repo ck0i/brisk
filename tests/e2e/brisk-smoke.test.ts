@@ -261,7 +261,13 @@ test("packaged CLI loads the Solid transform outside the repository", async () =
     join(repositoryRoot, "node_modules", ".brisk-package-test-"),
   );
   const executable = await buildPackageBundle(bundleDirectory);
-  const child = Bun.spawn([executable, "bench", "--json"], {
+  // Windows cannot execute a shebang script directly; run it through the
+  // current Bun binary instead, matching what the shebang does elsewhere.
+  const command =
+    process.platform === "win32"
+      ? [process.execPath, executable, "bench", "--json"]
+      : [executable, "bench", "--json"];
+  const child = Bun.spawn(command, {
     cwd: outsideDirectory,
     env: { ...process.env, NO_COLOR: "1" },
     stdin: "ignore",

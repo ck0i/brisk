@@ -73,7 +73,9 @@ export async function runBash(
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
-      detached: true,
+      // A detached cmd.exe loses non-builtin child stdout/stderr on Windows;
+      // taskkill /T already terminates the tree there.
+      detached: process.platform !== "win32",
     });
   } catch (error) {
     await writer.abort();

@@ -66,7 +66,10 @@ describe("native coding tool agent flow", () => {
             id: "bash-1",
             name: "bash",
             arguments: {
-              command: "printf 'test passed\\n' && grep -q 'value = 2' src/value.ts",
+              command:
+                process.platform === "win32"
+                  ? "findstr 2 src\\value.ts >nul && echo test passed"
+                  : "printf 'test passed\\n' && grep -q 'value = 2' src/value.ts",
             },
           },
         ],

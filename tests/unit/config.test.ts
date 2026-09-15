@@ -228,7 +228,9 @@ describe("configuration", () => {
       const text = await readFile(layout.paths.globalConfigPath, "utf8");
       expect(text).toContain("// retain this comment");
       expect(text).not.toContain('"permissionMode"');
-      expect((await stat(layout.paths.globalConfigPath)).mode & 0o777).toBe(0o600);
+      if (process.platform !== "win32") {
+        expect((await stat(layout.paths.globalConfigPath)).mode & 0o777).toBe(0o600);
+      }
       const loaded = await loadConfig({ paths: layout.paths });
       expect(loaded.config.defaultSubtaskModel).toBe("openai-codex/gpt-5.6-luna");
       expect(loaded.config.ui.showThinking).toBe(true);

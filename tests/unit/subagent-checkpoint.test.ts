@@ -84,8 +84,10 @@ describe("CheckpointStore", () => {
 
     expect(duplicate).toBe(first);
     expect(await readdir(directory)).toEqual([`${first.id}.json`]);
-    expect((await stat(directory)).mode & 0o777).toBe(0o700);
-    expect((await stat(join(directory, `${first.id}.json`))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      expect((await stat(join(directory, `${first.id}.json`))).mode & 0o777).toBe(0o600);
+    }
     const document: unknown = JSON.parse(
       await readFile(join(directory, `${first.id}.json`), "utf8"),
     );

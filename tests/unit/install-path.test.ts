@@ -56,7 +56,7 @@ describe("PATH installer", () => {
     const home = await temporaryHome();
     await writeFile(join(home, ".profile"), "export EDITOR=vim\n", "utf8");
     const context = linuxContext(home, { SHELL: "/bin/bash", PATH: "/usr/local/bin:/usr/bin" });
-    const binDirectory = join(home, ".bun", "bin");
+    const binDirectory = "/home/user/.bun/bin";
 
     const first = await ensureUserPath(binDirectory, context);
     const second = await ensureUserPath(binDirectory, context);

@@ -27,7 +27,7 @@ describe("WorkspacePaths", () => {
   test("rejects lexical and symlink escapes for writes", async () => {
     await withDirectories(async ({ workspace, outside }) => {
       await writeFile(path.join(outside, "secret.txt"), "secret");
-      await symlink(outside, path.join(workspace, "escape"));
+      await symlink(outside, path.join(workspace, "escape"), symlinkType());
       const paths = new WorkspacePaths(workspace);
 
       expect(() => paths.resolveWrite("../outside/secret.txt")).toThrow("escapes the workspace");
@@ -72,4 +72,9 @@ async function withDirectories(
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+/** Windows directory links need junction scope unless developer mode grants symlinks. */
+function symlinkType(): "junction" | undefined {
+  return process.platform === "win32" ? "junction" : undefined;
 }

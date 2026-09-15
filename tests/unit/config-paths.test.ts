@@ -79,9 +79,7 @@ describe("configuration paths", () => {
   });
 
   test("locates the workspace overlay", () => {
-    expect(projectConfigPath(join("workspace", "repo"), "linux")).toBe(
-      join("workspace", "repo", ".brisk", "config.jsonc"),
-    );
+    expect(projectConfigPath("workspace/repo", "linux")).toBe("workspace/repo/.brisk/config.jsonc");
     expect(projectConfigPath("C:\\workspace", "win32")).toBe("C:\\workspace\\.brisk\\config.jsonc");
   });
 
@@ -91,7 +89,9 @@ describe("configuration paths", () => {
     try {
       await mkdir(root, { recursive: true });
       await ensurePrivateDirectory(directory, "linux");
-      expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      if (process.platform !== "win32") {
+        expect((await stat(directory)).mode & 0o777).toBe(0o700);
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }

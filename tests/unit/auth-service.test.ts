@@ -150,8 +150,10 @@ describe("AuthService", () => {
     expect(JSON.stringify(service.listProviderStatus(["anthropic"]))).not.toContain(
       "BRISK_TEST_PROMPT_RESPONSE",
     );
-    expect((await stat(parent)).mode & 0o777).toBe(0o700);
-    expect((await stat(dbPath)).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await stat(parent)).mode & 0o777).toBe(0o700);
+      expect((await stat(dbPath)).mode & 0o777).toBe(0o600);
+    }
     expect(fake.reloadCount).toBe(1);
 
     await service.logout("anthropic");

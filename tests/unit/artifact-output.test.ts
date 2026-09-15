@@ -29,9 +29,11 @@ describe("ArtifactStore", () => {
     expect(await new ArtifactStore(artifactDirectory).readText(metadata.reference)).toBe(
       "full output 😀",
     );
-    expect((await lstat(artifactDirectory)).mode & 0o777).toBe(0o700);
-    expect((await lstat(await store.resolve(metadata.reference))).mode & 0o777).toBe(0o600);
-    expect((await lstat(join(artifactDirectory, "safe-id_1.json"))).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") {
+      expect((await lstat(artifactDirectory)).mode & 0o777).toBe(0o700);
+      expect((await lstat(await store.resolve(metadata.reference))).mode & 0o777).toBe(0o600);
+      expect((await lstat(join(artifactDirectory, "safe-id_1.json"))).mode & 0o777).toBe(0o600);
+    }
   });
 
   test("rejects traversal, malformed references, and unknown artifacts", async () => {

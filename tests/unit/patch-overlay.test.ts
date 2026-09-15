@@ -143,7 +143,7 @@ describe("PatchOverlayWorkspace", () => {
   test("jails paths and rejects symlink escapes, binary files, and invalid UTF-8", async () => {
     await withFixture(async ({ root, outside }) => {
       await writeFile(path.join(outside, "secret.txt"), "secret\n");
-      await symlink(outside, path.join(root, "escape"));
+      await symlink(outside, path.join(root, "escape"), symlinkType());
       await writeFile(path.join(root, "binary.dat"), Uint8Array.from([0x61, 0, 0x62]));
       await writeFile(path.join(root, "invalid.txt"), Uint8Array.from([0xc3, 0x28]));
       const overlay = new PatchOverlayWorkspace({ workspace: root });
@@ -300,4 +300,9 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>): Promise<vo
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
+}
+
+/** Windows directory links need junction scope unless developer mode grants symlinks. */
+function symlinkType(): "junction" | undefined {
+  return process.platform === "win32" ? "junction" : undefined;
 }

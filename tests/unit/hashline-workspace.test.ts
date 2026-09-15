@@ -69,7 +69,7 @@ describe("HashlineWorkspace read", () => {
     await withWorkspace(async ({ root, outside }) => {
       const outsideFile = path.join(outside, "secret.txt");
       await writeFile(outsideFile, "secret");
-      await symlink(outside, path.join(root, "escape"));
+      await symlink(outside, path.join(root, "escape"), symlinkType());
       const service = new HashlineWorkspace({
         workspace: root,
         artifactReader: { read: async () => new TextEncoder().encode("artifact\n") },
@@ -365,4 +365,9 @@ async function withWorkspace(
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
+}
+
+/** Windows directory links need junction scope unless developer mode grants symlinks. */
+function symlinkType(): "junction" | undefined {
+  return process.platform === "win32" ? "junction" : undefined;
 }

@@ -16,6 +16,10 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 - Zero-config `web_search` access for root, BTW, and delegated agents through Exa's public MCP endpoint, with bounded output and source URLs.
 - OpenCode Go is available from the interactive login picker and `brisk auth login opencode-go`, with `OPENCODE_API_KEY` as the environment fallback.
 
+### Changed
+
+- Bumped the pinned `@oh-my-pi` runtime stack to `pi-ai`, `pi-catalog`, `pi-natives`, and `snapcompact` 18.2.0 and `hashline` 18.1.5. The refreshed catalog adds the current OpenCode Go lineup, including GLM-5.3 Flash, Grok 4.6, DeepSeek V4.1 Flash, Qwen3.8, LongCat-2.0, and Hy4.
+
 ### Fixed
 
 - Keep streamed assistant markdown mounted across token updates so lists and other formatted blocks no longer flicker as the transcript grows.

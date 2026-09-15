@@ -8,10 +8,10 @@ This file covers Brisk's direct runtime dependencies at the versions pinned in `
 | ------------------------------ | ------: | --------------------------- | -------------------------------------------------------------------------- |
 | `@cursor/sdk`                  |  1.0.28 | Proprietary (Cursor TOS)    | <https://cursor.com/docs/sdk/typescript>                                   |
 | `@modelcontextprotocol/client` |   2.0.0 | Apache-2.0 / MIT transition | <https://github.com/modelcontextprotocol/typescript-sdk>                   |
-| `@oh-my-pi/hashline`           |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/hashline>       |
-| `@oh-my-pi/pi-ai`              |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/ai>             |
-| `@oh-my-pi/pi-catalog`         |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/catalog>        |
-| `@oh-my-pi/snapcompact`        |  17.2.6 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v17.2.6/packages/snapcompact>    |
+| `@oh-my-pi/hashline`           |  18.1.5 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.1.5/packages/hashline>       |
+| `@oh-my-pi/pi-ai`              |  18.2.0 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.2.0/packages/ai>             |
+| `@oh-my-pi/pi-catalog`         |  18.2.0 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.2.0/packages/catalog>        |
+| `@oh-my-pi/snapcompact`        |  18.2.0 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.2.0/packages/snapcompact>    |
 | `@opentui/core`                |   0.5.0 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/core>           |
 | `@opentui/solid`               |   0.5.0 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/solid>          |
 | `diff`                         |   8.0.3 | BSD-3-Clause                | <https://github.com/kpdecker/jsdiff>                                       |

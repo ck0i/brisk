@@ -6,19 +6,19 @@ This file covers Brisk's direct runtime dependencies at the versions pinned in `
 
 | Package                        | Version | License                     | Project                                                                    |
 | ------------------------------ | ------: | --------------------------- | -------------------------------------------------------------------------- |
-| `@cursor/sdk`                  |  1.0.28 | Proprietary (Cursor TOS)    | <https://cursor.com/docs/sdk/typescript>                                   |
-| `@modelcontextprotocol/client` |   2.0.0 | Apache-2.0 / MIT transition | <https://github.com/modelcontextprotocol/typescript-sdk>                   |
+| `@cursor/sdk`                  |  1.0.32 | Proprietary (Cursor TOS)    | <https://cursor.com/docs/sdk/typescript>                                   |
+| `@modelcontextprotocol/client` |   2.1.0 | Apache-2.0 / MIT transition | <https://github.com/modelcontextprotocol/typescript-sdk>                   |
 | `@oh-my-pi/hashline`           |  18.1.5 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.1.5/packages/hashline>       |
-| `@oh-my-pi/pi-ai`              |  18.2.0 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.2.0/packages/ai>             |
-| `@oh-my-pi/pi-catalog`         |  18.2.0 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.2.0/packages/catalog>        |
-| `@oh-my-pi/snapcompact`        |  18.2.0 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.2.0/packages/snapcompact>    |
-| `@opentui/core`                |   0.5.0 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/core>           |
-| `@opentui/solid`               |   0.5.0 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.0/packages/solid>          |
-| `diff`                         |   8.0.3 | BSD-3-Clause                | <https://github.com/kpdecker/jsdiff>                                       |
+| `@oh-my-pi/pi-ai`              |  18.3.4 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.3.4/packages/ai>             |
+| `@oh-my-pi/pi-catalog`         |  18.3.4 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.3.4/packages/catalog>        |
+| `@oh-my-pi/snapcompact`        |  18.3.4 | MIT                         | <https://github.com/can1357/oh-my-pi/tree/v18.3.4/packages/snapcompact>    |
+| `@opentui/core`                |  0.5.12 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.12/packages/core>          |
+| `@opentui/solid`               |  0.5.12 | MIT                         | <https://github.com/anomalyco/opentui/tree/v0.5.12/packages/solid>         |
+| `diff`                         |   9.0.0 | BSD-3-Clause                | <https://github.com/kpdecker/jsdiff>                                       |
 | `jsonc-parser`                 |   3.3.1 | MIT                         | <https://github.com/microsoft/node-jsonc-parser>                           |
-| `solid-js`                     |  1.9.12 | MIT                         | <https://github.com/solidjs/solid>                                         |
+| `solid-js`                     |  1.9.15 | MIT                         | <https://github.com/solidjs/solid>                                         |
 | `web-tree-sitter`              | 0.25.10 | MIT                         | <https://github.com/tree-sitter/tree-sitter/tree/v0.25.10/lib/binding_web> |
-| `zod`                          |   4.4.3 | MIT                         | <https://github.com/colinhacks/zod>                                        |
+| `zod`                          |   4.6.5 | MIT                         | <https://github.com/colinhacks/zod>                                        |
 
 Versions and license information above are taken from installed package metadata and bundled license files. The copyright notices below are retained from installed license files or the identified upstream release license where a package omitted a license file.
 
@@ -85,7 +85,7 @@ The following terms apply to each MIT-licensed package listed above:
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-## diff 8.0.3, BSD-3-Clause
+## diff 9.0.0, BSD-3-Clause
 
 Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>  
 All rights reserved.

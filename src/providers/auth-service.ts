@@ -99,7 +99,9 @@ export class AuthService implements CredentialResolver {
       await mkdir(parent, { recursive: true, mode: 0o700 });
       await chmod(parent, 0o700);
       const resolvedDependencies: Required<AuthServiceDependencies> = {
-        createStorage: dependencies.createStorage ?? ((path) => AuthStorage.create(path)),
+        createStorage:
+          dependencies.createStorage ??
+          (async (path) => flatAuthStorage(await AuthStorage.create(path))),
         oauthProviders: dependencies.oauthProviders ?? getOAuthProviders,
         envApiKey: dependencies.envApiKey ?? getEnvApiKey,
         envProviders: dependencies.envProviders ?? listProvidersWithEnvKey,
@@ -271,6 +273,32 @@ export class AuthService implements CredentialResolver {
   private assertOpen(): void {
     if (this.closed) throw new Error("Authentication service is closed");
   }
+}
+
+/**
+ * pi-ai 18.3 split AuthStorage into namespaces (`keys`, `credentials`, `oauth`, ...).
+ * `keys.source` keeps the old precedence for origin and availability, and only
+ * active stored rows count as a provider's stored credentials.
+ */
+function flatAuthStorage(storage: AuthStorage): AuthStorageLike {
+  return {
+    reload: () => storage.credentials.reload(),
+    close: () => storage.close(),
+    list: () => [
+      ...new Set(
+        storage.credentials
+          .list()
+          .filter((row) => row.disabledCause === null)
+          .map((row) => row.provider),
+      ),
+    ],
+    hasAuth: (provider) => storage.keys.source(provider) !== undefined,
+    getCredentialOrigin: (provider) => storage.keys.source(provider),
+    login: (provider, controller) => storage.oauth.login(provider, controller),
+    logout: (provider) => storage.credentials.remove(provider),
+    set: (provider, credential) => storage.credentials.set(provider, credential),
+    getApiKey: (provider, sessionId, options) => storage.keys.get(provider, sessionId, options),
+  };
 }
 
 function sanitizedAuthError(error: unknown, secrets: readonly string[], fallback: string): Error {

@@ -20,8 +20,8 @@ import { redactedErrorMessage } from "./secret-redaction.ts";
 
 /**
  * Providers the interactive login picker offers. Each id must exist upstream
- * with a login flow; OpenCode Go pastes an API key instead of completing an
- * OAuth callback.
+ * with a login flow; OpenCode Go and Command Code paste an API key instead of
+ * completing an OAuth callback.
  */
 export const BUILT_IN_BRISK_OAUTH_PROVIDERS = [
   "anthropic",
@@ -29,6 +29,7 @@ export const BUILT_IN_BRISK_OAUTH_PROVIDERS = [
   "google-antigravity",
   "cursor",
   "opencode-go",
+  "commandcode",
 ] as const;
 
 export interface AuthPrompter {

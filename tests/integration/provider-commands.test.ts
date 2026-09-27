@@ -6,7 +6,7 @@ import { Writable } from "node:stream";
 
 import { runAuthCommand } from "../../src/cli/provider-commands.ts";
 import { resolveConfigPaths, type ConfigPaths } from "../../src/config/paths.ts";
-import { AuthService } from "../../src/providers/auth-service.ts";
+import { AuthService, BUILT_IN_BRISK_OAUTH_PROVIDERS } from "../../src/providers/auth-service.ts";
 
 const temporaryDirectories: string[] = [];
 afterEach(async () => {
@@ -34,53 +34,65 @@ describe("provider CLI commands", () => {
     expect(read()).not.toContain("refresh");
   });
 
-  test("reports OpenCode Go as an available login provider", async () => {
-    const { paths, output, read } = await createHarness();
+  const apiKeyLoginProviders = [
+    { provider: "opencode-go", name: "OpenCode Go", origin: "https://opencode.ai/" },
+    { provider: "commandcode", name: "Command Code", origin: "https://commandcode.ai/" },
+  ];
 
-    await runAuthCommand({ name: "auth", action: "status", json: true }, paths, { output });
+  test.each(apiKeyLoginProviders)(
+    "reports $name as an available login provider",
+    async ({ provider, name }) => {
+      const { paths, output, read } = await createHarness();
 
-    const statuses: unknown = JSON.parse(read());
-    if (!Array.isArray(statuses)) throw new Error("status output was not an array");
-    expect(statuses).toContainEqual(
-      expect.objectContaining({
-        provider: "opencode-go",
-        name: "OpenCode Go",
-        configured: false,
-        oauth: true,
-        oauthAvailable: true,
-      }),
-    );
-  });
+      await runAuthCommand({ name: "auth", action: "status", json: true }, paths, { output });
 
-  test("stores a pasted OpenCode Go API key and logs out locally", async () => {
-    const { paths } = await createHarness();
-    const secret = "brisk-test-opencode-go-key";
-    const auth = await AuthService.initialize(paths.authPath);
-    try {
-      const opened: string[] = [];
-      let promptMessage = "";
-      await auth.login("opencode-go", {
-        openBrowser: (info) => {
-          opened.push(info.url);
-        },
-        prompt: async (prompt) => {
-          promptMessage = prompt.message;
-          return secret;
-        },
-      });
+      const statuses: unknown = JSON.parse(read());
+      if (!Array.isArray(statuses)) throw new Error("status output was not an array");
+      expect(statuses).toContainEqual(
+        expect.objectContaining({
+          provider,
+          name,
+          configured: false,
+          oauth: true,
+          oauthAvailable: true,
+        }),
+      );
+      expect<readonly string[]>(BUILT_IN_BRISK_OAUTH_PROVIDERS).toContain(provider);
+    },
+  );
 
-      expect(opened).toHaveLength(1);
-      expect(opened[0]).toStartWith("https://opencode.ai/");
-      expect(promptMessage).toContain("API key");
-      expect(auth.hasAuth("opencode-go")).toBe(true);
-      expect(await auth.getApiKey("opencode-go")).toBe(secret);
+  test.each(apiKeyLoginProviders)(
+    "stores a pasted $name API key and logs out locally",
+    async ({ provider, origin }) => {
+      const { paths } = await createHarness();
+      const secret = `brisk-test-${provider}-key`;
+      const auth = await AuthService.initialize(paths.authPath);
+      try {
+        const opened: string[] = [];
+        let promptMessage = "";
+        await auth.login(provider, {
+          openBrowser: (info) => {
+            opened.push(info.url);
+          },
+          prompt: async (prompt) => {
+            promptMessage = prompt.message;
+            return secret;
+          },
+        });
 
-      await auth.logout("opencode-go");
-      expect(auth.hasAuth("opencode-go")).toBe(false);
-    } finally {
-      auth.close();
-    }
-  });
+        expect(opened).toHaveLength(1);
+        expect(opened[0]).toStartWith(origin);
+        expect(promptMessage).toContain("API key");
+        expect(auth.hasAuth(provider)).toBe(true);
+        expect(await auth.getApiKey(provider)).toBe(secret);
+
+        await auth.logout(provider);
+        expect(auth.hasAuth(provider)).toBe(false);
+      } finally {
+        auth.close();
+      }
+    },
+  );
 });
 
 async function createHarness(): Promise<{

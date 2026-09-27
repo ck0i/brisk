@@ -193,7 +193,10 @@ test("Brisk edits, verifies, persists, closes, and resumes a coding session", as
     expect(provider.editPatch?.split("\n")[0]).toBe(provider.readOutput?.split("\n")[0]);
     expect(provider.requests).toHaveLength(4);
     expect(textDeltas).toEqual([...finalChunks]);
-    expect(bashDeltas.join("")).toContain("value is updated");
+    //
+    // bun hides passing test names when it detects an agent (CLAUDECODE=1), so only the summary is stable.
+    //
+    expect(bashDeltas.join("")).toMatch(/\b1 pass\b/);
     expect(loop.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: finalChunks.join(""),

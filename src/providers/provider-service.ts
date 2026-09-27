@@ -14,6 +14,7 @@ import type { ConfigPaths } from "../config/paths.ts";
 import { AuthService, type AuthServiceDependencies } from "./auth-service.ts";
 import type { ProviderEvent } from "../core/events.ts";
 import { CursorSdkProvider, type CursorSdkRuntime } from "./cursor-sdk-provider.ts";
+import { ModelPool, PooledTransport, modelPoolKey } from "./model-pool.ts";
 import {
   ModelRegistry,
   type CustomOpenAICompatibleModel,
@@ -105,6 +106,7 @@ export class ProviderService {
   readonly registry: ModelRegistry;
   readonly credentials: ConfigCredentialResolver;
   private readonly listeners = new Set<ProviderServiceListener>();
+  private readonly pool = new ModelPool();
   private readonly activeTransport = new ActiveTransport(() => this.transportValue);
   private readonly preferredModel: string | undefined;
   private readonly cacheRetention: CacheRetention;
@@ -213,6 +215,10 @@ export class ProviderService {
   async refreshModels(): Promise<void> {
     this.assertOpen();
     await this.registry.refreshBundledAndCustom();
+    //
+    // credentials may have changed, so earlier plan failures say little now.
+    //
+    this.pool.reset();
     const selected = this.selectedValue;
     if (selected) {
       const refreshed = this.registry.select(selected.record.provider, selected.record.id);
@@ -226,14 +232,28 @@ export class ProviderService {
         this.transportValue = undefined;
         this.publish();
       } else {
-        this.selectedValue = { record: refreshed, upstream };
-        this.transportValue?.setModel(upstream);
-        this.transportValue?.setReasoning(
-          toProviderReasoning(resolveEffortSetting(upstream, this.requestedEffort)),
-        );
-        this.publish();
+        //
+        // a login or logout can add or drop a pool partner, and select() rebuilds for that.
+        //
+        this.select(refreshed.provider, refreshed.id);
       }
     }
+  }
+
+  poolPartners(provider: string, id: string): readonly ModelSelection[] {
+    const key = modelPoolKey(provider, id);
+    if (key === undefined) return [];
+    return this.registry.models.flatMap((record) => {
+      if (
+        !record.available ||
+        record.provider === provider ||
+        modelPoolKey(record.provider, record.id) !== key
+      ) {
+        return [];
+      }
+      const upstream = this.registry.resolveUpstreamModel(record.provider, record.id);
+      return upstream ? [{ record, upstream }] : [];
+    });
   }
 
   createIsolatedProvider(
@@ -261,7 +281,7 @@ export class ProviderService {
     const selection = this.selectionFor(provider, id);
     const { upstream } = selection;
     this.selectedValue = selection;
-    if (this.transportValue && sameTransportKind(this.transportValue, upstream)) {
+    if (this.transportValue && this.canRetarget(this.transportValue, upstream)) {
       const reasoning = toProviderReasoning(resolveEffortSetting(upstream, this.requestedEffort));
       this.transportValue.setModel(upstream);
       this.transportValue.setReasoning(reasoning);
@@ -316,13 +336,35 @@ export class ProviderService {
         ...(isolated ? { firstEventTimeoutMs: CURSOR_CHILD_STREAM_TIMEOUT_MS } : {}),
       });
     }
-    return new PiAiProvider({
-      model: upstream,
-      auth: this.credentials,
-      cacheRetention: this.cacheRetention,
-      ...(reasoning === undefined ? {} : { reasoning }),
+    const piAi = (model: Model<Api>, modelReasoning: Effort | "off" | undefined): PiAiProvider =>
+      new PiAiProvider({
+        model,
+        auth: this.credentials,
+        cacheRetention: this.cacheRetention,
+        ...(modelReasoning === undefined ? {} : { reasoning: modelReasoning }),
+        ...(sessionId === undefined ? {} : { sessionId }),
+      });
+    const partners = this.poolPartners(upstream.provider, upstream.id);
+    if (partners.length === 0) return piAi(upstream, reasoning);
+    return new PooledTransport({
+      members: [
+        piAi(upstream, reasoning),
+        ...partners.map(({ upstream: partner }) =>
+          piAi(partner, memberReasoning(partner, reasoning)),
+        ),
+      ],
+      pool: this.pool,
       ...(sessionId === undefined ? {} : { sessionId }),
+      memberReasoning,
     });
+  }
+
+  private canRetarget(transport: ModelTransport, model: Model<Api>): boolean {
+    return (
+      !(transport instanceof PooledTransport) &&
+      this.poolPartners(model.provider, model.id).length === 0 &&
+      sameTransportKind(transport, model)
+    );
   }
 
   private publish(): void {
@@ -366,10 +408,20 @@ function sameTransportKind(transport: ModelTransport, model: Model<Api>): boolea
   return isCursorAgentModel(transport.model) === isCursorAgentModel(model);
 }
 
+//
+// pool partners take the effort already resolved for the selected model, clamped to their own ladder.
+//
+function memberReasoning(
+  model: Model<Api>,
+  reasoning: Effort | "off" | undefined,
+): Effort | "off" | undefined {
+  return toProviderReasoning(resolveEffortSetting(model, reasoning ?? "auto"));
+}
+
 /*++
 
 AgentLoop keeps the transport it was built with, but select() replaces the
-transport whenever the new model can't reuse it (switching to or from Cursor).
+transport whenever the new model can't reuse it (Cursor, or a pooled model).
 this facade is the one reference handed out, and it always forwards to
 whatever is selected right now. transport lifetime stays with the service.
 

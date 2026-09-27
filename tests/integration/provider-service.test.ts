@@ -117,6 +117,48 @@ describe("ProviderService", () => {
     }
   });
 
+  test("pools OpenCode Go and Command Code equivalents behind one stable transport", async () => {
+    const root = await mkdtemp(join(tmpdir(), "brisk-provider-pool-"));
+    temporaryDirectories.push(root);
+    const paths = resolveConfigPaths({
+      platform: "linux",
+      homeDir: root,
+      env: {
+        XDG_CONFIG_HOME: join(root, "config"),
+        XDG_DATA_HOME: join(root, "data"),
+        XDG_CACHE_HOME: join(root, "cache"),
+      },
+    });
+    const service = await ProviderService.initialize({
+      paths,
+      config: configSchema.parse({}),
+      environment: {},
+      sessionId: "pool-session",
+    });
+    try {
+      await service.registry.refreshingBundledAndCustom;
+      expect(service.poolPartners("opencode-go", "kimi-k2.7-code")).toEqual([]);
+      await service.auth.storeApiKey("opencode-go", "brisk-test-opencode-go-key");
+      await service.auth.storeApiKey("commandcode", "brisk-test-commandcode-key");
+      await service.refreshModels();
+
+      const partners = service.poolPartners("opencode-go", "kimi-k2.7-code");
+      expect(partners.map(({ record }) => record.provider)).toEqual(["commandcode"]);
+      expect(service.poolPartners("commandcode", "claude-sonnet-5")).toEqual([]);
+
+      //
+      // AgentLoop holds the first transport it gets, so switching into a pooled model must not strand it.
+      //
+      service.select("commandcode", "claude-sonnet-5");
+      const transport = service.provider;
+      service.select("opencode-go", "kimi-k2.7-code");
+      expect(service.provider).toBe(transport);
+      expect(transport?.model.provider).toBe("opencode-go");
+    } finally {
+      service.close();
+    }
+  });
+
   test("resolves only the reasoning efforts supported by each model", () => {
     const reasoning = buildModel({
       id: "reasoning-model",

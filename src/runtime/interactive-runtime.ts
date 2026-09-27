@@ -37,6 +37,7 @@ import {
   type IsolatedProviderSelection,
   type ModelSelection,
 } from "../providers/provider-service.ts";
+import type { RegisteredModel } from "../providers/model-registry.ts";
 import { registerCodingTools, type CodingToolServices } from "../tools/coding-tools.ts";
 import { cleanupToolProcesses } from "../tools/process-registry.ts";
 import { ToolRegistry } from "../tools/registry.ts";
@@ -1476,15 +1477,7 @@ export class InteractiveRuntime {
       searchPlaceholder: "Search models…",
       options: [
         { id: "inherit", label: "Automatic / inherited", description: inheritDescription },
-        ...models.map((model) => ({
-          id: `${model.provider}/${model.id}`,
-          label: `${model.provider}/${model.id}`,
-          searchText: model.name,
-          description:
-            model.contextWindow === null
-              ? model.api
-              : `${model.contextWindow.toLocaleString()} context · ${model.api}`,
-        })),
+        ...models.map((model) => modelOption(model, this.providerService)),
       ],
     });
     if (selected === undefined) return false;
@@ -1526,15 +1519,7 @@ export class InteractiveRuntime {
             ]
           : []),
         { id: "off", label: "Disabled", description: "do not run an advisor" },
-        ...models.map((model) => ({
-          id: `${model.provider}/${model.id}`,
-          label: `${model.provider}/${model.id}`,
-          searchText: model.name,
-          description:
-            model.contextWindow === null
-              ? model.api
-              : `${model.contextWindow.toLocaleString()} context · ${model.api}`,
-        })),
+        ...models.map((model) => modelOption(model, this.providerService)),
       ],
     });
     if (selected === undefined) return false;
@@ -1811,15 +1796,7 @@ export class InteractiveRuntime {
       title: "Select provider/model",
       searchable: true,
       searchPlaceholder: "Search models…",
-      options: models.map((model) => ({
-        id: `${model.provider}/${model.id}`,
-        label: `${model.provider}/${model.id}`,
-        searchText: model.name,
-        description:
-          model.contextWindow === null
-            ? model.api
-            : `${model.contextWindow.toLocaleString()} context · ${model.api}`,
-      })),
+      options: models.map((model) => modelOption(model, providers)),
       ...(providers.selected === undefined ? {} : { selectedId: modelName(providers.selected) }),
     });
   }
@@ -2109,6 +2086,24 @@ function applyHistoricalToolResult(
 
 function modelName(selection: ModelSelection): string {
   return `${selection.record.provider}/${selection.record.id}`;
+}
+
+function modelOption(model: RegisteredModel, providers: ProviderService | undefined) {
+  const specifier = `${model.provider}/${model.id}`;
+  const limits =
+    model.contextWindow === null
+      ? model.api
+      : `${model.contextWindow.toLocaleString()} context · ${model.api}`;
+  const partners = providers?.poolPartners(model.provider, model.id) ?? [];
+  return {
+    id: specifier,
+    label: specifier,
+    searchText: model.name,
+    description:
+      partners.length === 0
+        ? limits
+        : `${limits} · pooled with ${partners.map(({ record }) => record.provider).join(", ")}`,
+  };
 }
 
 function contextModelForSelection(selection: ModelSelection): ContextModel {

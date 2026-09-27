@@ -1,7 +1,13 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import type { Api, Model, ModelSpec, OpenAICompat } from "@oh-my-pi/pi-catalog";
+import {
+  modelKind,
+  type Api,
+  type Model,
+  type ModelSpec,
+  type OpenAICompat,
+} from "@oh-my-pi/pi-catalog";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
 import {
   getBundledModels,
@@ -137,6 +143,8 @@ export class ModelRegistry {
     const nextUpstream = new Map<string, Model<Api>>();
     for (const provider of bundledProviders) {
       for (const model of getBundledModels(provider as GeneratedProvider)) {
+        // Image, speech, embedding, and other runner rows cannot hold a session conversation.
+        if (modelKind(model) !== "chat") continue;
         const key = modelKey(model.provider, model.id);
         nextUpstream.set(key, model);
         nextRecords.set(key, toRecord(model, availability.get(model.provider) ?? false, "bundled"));

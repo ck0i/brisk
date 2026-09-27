@@ -22,6 +22,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 
 - Bumped the pinned `@oh-my-pi` runtime stack to `pi-ai`, `pi-catalog`, `pi-natives`, and `snapcompact` 18.3.4 and `hashline` 18.1.5. The refreshed catalog adds the current OpenCode Go lineup, including GLM-5.3 Flash, Grok 4.6 and 4.7, DeepSeek V4.1 Flash, Qwen3.8, LongCat-2.0, Hy4, and MiMo V2.6, plus Claude Opus 5.5, GPT-6 Luna and Sol, and GPT-6 Astra on Command Code.
 - Bumped the remaining dependencies to their latest releases: OpenTUI 0.5.12, `@cursor/sdk` 1.0.32, `@modelcontextprotocol/client` 2.1.0, `diff` 9.0.0, `solid-js` 1.9.15, `zod` 4.6.5, and the TypeScript, lint, and formatter tooling. `web-tree-sitter` stays at 0.25.10 because OpenTUI pins it as a peer dependency. The deprecated `@types/diff` stub is removed because `diff` ships its own types.
+- Model pickers, `brisk models`, and automatic model selection list only chat models. The catalog now also carries image, speech, embedding, rerank, video, and search runners, which cannot hold a session.
 
 ### Fixed
 

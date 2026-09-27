@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { Api, Model } from "@oh-my-pi/pi-catalog";
 import { buildModel } from "@oh-my-pi/pi-catalog/build";
+import type { Effort } from "@oh-my-pi/pi-catalog/effort";
 
 import { NormalizedProviderError, type ProviderEvent } from "../../src/core/events.ts";
 import type { Message } from "../../src/core/messages.ts";
@@ -91,6 +92,23 @@ describe("model pool", () => {
       "from opencode-go",
       "from commandcode",
     ]);
+  });
+
+  test("moves a conversation off a plan that cannot run the chosen effort", async () => {
+    const go = new FakeMember("opencode-go", []);
+    const cc = new FakeMember("commandcode", []);
+    const transport = new PooledTransport({
+      members: [go, cc],
+      pool: new ModelPool(1),
+      memberReasoning: (model, reasoning) => (model.provider === "commandcode" ? "off" : reasoning),
+    });
+
+    await collect(transport, text);
+    transport.setReasoning("max" as Effort);
+    await collect(transport, text);
+
+    expect(cc.calls).toBe(1);
+    expect(go.calls).toBe(1);
   });
 });
 

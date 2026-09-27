@@ -16,7 +16,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 - Zero-config `web_search` access for root, BTW, and delegated agents through Exa's public MCP endpoint, with bounded output and source URLs.
 - OpenCode Go is available from the interactive login picker and `brisk auth login opencode-go`, with `OPENCODE_API_KEY` as the environment fallback.
 - Command Code is available from the interactive login picker and `brisk auth login commandcode`, with `COMMAND_CODE_API_KEY` as the environment fallback.
-- With both OpenCode Go and Command Code logged in, models served by both plans are pooled: new conversations are balanced across the plans by live load, and a request that one plan rejects before any output (usage limit, auth, outage) is retried on the other.
+- With both OpenCode Go and Command Code logged in, models served by both plans are pooled: new conversations are balanced across the plans by live load, a plan only takes conversations when it can run the chosen effort, and a request that one plan rejects before any output (usage limit, auth, outage) is retried on the other.
 
 ### Changed
 

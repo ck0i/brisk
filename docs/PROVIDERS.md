@@ -53,7 +53,8 @@ When both are logged in, a model that both plans serve is pooled, and selecting 
 - Each conversation (main session, subagent, advisor, `/btw` thread) stays on one plan so its prompt cache keeps paying off. New conversations go to the plan with the fewest live conversations, so parallel subagents split across both. Alternating per request would miss the cache on every switch and cost more quota than it saves.
 - If a plan fails a request before streaming any output, Brisk retries the same request on the other plan and the conversation stays there. This covers usage or rate limits, rejected keys, outages, and a context window that is too small. A rate-limited plan is skipped for the provider's `Retry-After` (60 seconds when absent), and a rejected key for 10 minutes. `/login` and `/logout` clear these cooldowns.
 - A conversation that carries images only uses plans whose model accepts image input.
-- The effort you pick for the selected model is clamped to each plan's supported levels. Compaction uses the selected model's context window.
+- A plan only takes conversations while it can run the exact effort resolved for the selected model. At `max`, DeepSeek V4 Flash and V4 Pro split across both plans. DeepSeek V4.1 Flash stays on OpenCode Go, because Command Code has no effort setting for it. With `auto`, every plan runs its own default and all of them share the load.
+- Compaction uses the selected model's context window.
 
 To keep a model on a single plan, log out of the other provider.
 

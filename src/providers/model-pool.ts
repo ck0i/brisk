@@ -96,6 +96,10 @@ export interface PooledTransportOptions {
   readonly members: readonly ModelTransport[];
   readonly pool: ModelPool;
   readonly sessionId?: string;
+  //
+  // effort already resolved for the selected model; members map it onto their own ladder.
+  //
+  readonly reasoning?: Reasoning;
   readonly memberReasoning: (model: Model<Api>, reasoning: Reasoning) => Reasoning;
 }
 
@@ -119,6 +123,7 @@ export class PooledTransport implements ModelTransport {
   private readonly pool: ModelPool;
   private readonly memberReasoning: PooledTransportOptions["memberReasoning"];
   private sessionId: string | undefined;
+  private usable: readonly ModelTransport[];
   private current: ModelTransport;
   private closed = false;
 
@@ -132,7 +137,8 @@ export class PooledTransport implements ModelTransport {
     this.pool = options.pool;
     this.memberReasoning = options.memberReasoning;
     this.sessionId = options.sessionId;
-    this.current = this.pool.assign(this.members);
+    this.usable = this.honoring(options.reasoning);
+    this.current = this.pool.assign(this.usable);
   }
 
   get model(): Model<Api> {
@@ -149,14 +155,15 @@ export class PooledTransport implements ModelTransport {
         member === this.primary ? reasoning : this.memberReasoning(member.model, reasoning),
       );
     }
+    this.usable = this.honoring(reasoning);
+    if (!this.usable.includes(this.current)) this.rehome();
   }
 
   setSessionId(sessionId: string | undefined): void {
     if (sessionId === this.sessionId) return;
     this.sessionId = sessionId;
     for (const member of this.members) member.setSessionId(sessionId);
-    this.pool.release(this.current);
-    this.current = this.pool.assign(this.members);
+    this.rehome();
   }
 
   close(): void {
@@ -211,6 +218,30 @@ export class PooledTransport implements ModelTransport {
     this.current = member;
   }
 
+  private rehome(): void {
+    if (this.closed) return;
+    this.pool.release(this.current);
+    this.current = this.pool.assign(this.usable);
+  }
+
+  /*++
+
+  A plan only takes conversations while it can run the exact effort picked for
+  the selected model. Command Code has no effort dial for some lanes (DeepSeek
+  V4.1 Flash, for one), so clamping `max` onto it would quietly hand half the
+  conversations a model that isn't reasoning the way the UI says it is. auto is
+  always fine because then every plan is just asked for its own default.
+
+  --*/
+  private honoring(reasoning: Reasoning): readonly ModelTransport[] {
+    return this.members.filter(
+      (member) =>
+        member === this.primary ||
+        reasoning === undefined ||
+        this.memberReasoning(member.model, reasoning) === reasoning,
+    );
+  }
+
   private next(
     request: ProviderRequest,
     tried: ReadonlySet<ModelTransport>,
@@ -218,8 +249,8 @@ export class PooledTransport implements ModelTransport {
     //
     // a text-only plan would silently drop the conversation's images, so it never takes over one.
     //
-    const seesImages = this.members.filter((member) => member.model.input.includes("image"));
-    const eligible = seesImages.length > 0 && hasImages(request) ? seesImages : this.members;
+    const seesImages = this.usable.filter((member) => member.model.input.includes("image"));
+    const eligible = seesImages.length > 0 && hasImages(request) ? seesImages : this.usable;
     const now = Date.now();
     const wait = (member: ModelTransport): number =>
       Math.max(0, this.pool.coolingUntil(member.model.provider) - now);

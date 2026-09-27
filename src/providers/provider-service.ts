@@ -355,6 +355,7 @@ export class ProviderService {
       ],
       pool: this.pool,
       ...(sessionId === undefined ? {} : { sessionId }),
+      ...(reasoning === undefined ? {} : { reasoning }),
       memberReasoning,
     });
   }

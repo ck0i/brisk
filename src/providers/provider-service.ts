@@ -12,6 +12,7 @@ import type { Api, Model, OpenAICompat } from "@oh-my-pi/pi-catalog";
 import type { BriskConfig, CustomProviderConfig, EffortSetting } from "../config/schema.ts";
 import type { ConfigPaths } from "../config/paths.ts";
 import { AuthService, type AuthServiceDependencies } from "./auth-service.ts";
+import type { ProviderEvent } from "../core/events.ts";
 import { CursorSdkProvider, type CursorSdkRuntime } from "./cursor-sdk-provider.ts";
 import {
   ModelRegistry,
@@ -25,6 +26,7 @@ import {
 } from "./pi-ai-provider.ts";
 import { resolvePromptCacheRetention } from "./prompt-cache.ts";
 import { isCursorAgentModel, type ModelTransport } from "./transport.ts";
+import type { ProviderRequest } from "./types.ts";
 
 export interface ProviderServiceOptions {
   readonly paths: ConfigPaths;
@@ -103,6 +105,7 @@ export class ProviderService {
   readonly registry: ModelRegistry;
   readonly credentials: ConfigCredentialResolver;
   private readonly listeners = new Set<ProviderServiceListener>();
+  private readonly activeTransport = new ActiveTransport(() => this.transportValue);
   private readonly preferredModel: string | undefined;
   private readonly cacheRetention: CacheRetention;
   private readonly workspace: string;
@@ -165,7 +168,7 @@ export class ProviderService {
   }
 
   get provider(): ModelTransport | undefined {
-    return this.transportValue;
+    return this.transportValue === undefined ? undefined : this.activeTransport;
   }
 
   get effort(): EffortSetting {
@@ -361,6 +364,46 @@ export function resolveEffortSetting(
 
 function sameTransportKind(transport: ModelTransport, model: Model<Api>): boolean {
   return isCursorAgentModel(transport.model) === isCursorAgentModel(model);
+}
+
+/*++
+
+AgentLoop keeps the transport it was built with, but select() replaces the
+transport whenever the new model can't reuse it (switching to or from Cursor).
+this facade is the one reference handed out, and it always forwards to
+whatever is selected right now. transport lifetime stays with the service.
+
+--*/
+class ActiveTransport implements ModelTransport {
+  constructor(private readonly current: () => ModelTransport | undefined) {}
+
+  get model(): Model<Api> {
+    return this.require().model;
+  }
+
+  setModel(model: Model<Api>): void {
+    this.require().setModel(model);
+  }
+
+  setReasoning(reasoning: Effort | "off" | undefined): void {
+    this.require().setReasoning(reasoning);
+  }
+
+  setSessionId(sessionId: string | undefined): void {
+    this.require().setSessionId(sessionId);
+  }
+
+  close(): void {}
+
+  stream(request: ProviderRequest): AsyncIterable<ProviderEvent> {
+    return this.require().stream(request);
+  }
+
+  private require(): ModelTransport {
+    const transport = this.current();
+    if (!transport) throw new Error("No provider model is selected");
+    return transport;
+  }
 }
 
 function toProviderReasoning(effort: EffortSetting): Effort | "off" | undefined {

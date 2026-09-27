@@ -29,6 +29,7 @@ All notable changes to Brisk are documented here. The format follows [Keep a Cha
 - Prebuild the npm executable with the OpenTUI Solid transform so global package launches no longer depend on the current directory containing Brisk's `bunfig.toml`.
 - Windows shell commands no longer lose output from non-builtin programs because `cmd.exe` is not spawned detached; `taskkill /T` still terminates the process tree.
 - Absolute paths outside the workspace keep native separators on Windows across `find`, `list`, `search`, read/edit previews, and path errors instead of mixing `/` and `\`.
+- Switching the main session to a model that needs a different transport, such as between Cursor and another provider, now takes effect instead of the running session continuing on the previous transport.
 
 ## [0.1.0] - 2026-08-03
 

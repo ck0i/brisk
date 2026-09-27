@@ -39,7 +39,7 @@ First-class modes are coordinated by the runtime rather than extension hooks: `/
 
 ## Providers
 
-`ProviderService` wraps auth storage, `ModelRegistry`, and a model transport. Cursor models use `@cursor/sdk`. Other models use `PiAiProvider`. Provider-specific shapes are normalized at the adapter. Reasoning effort is resolved against each model's catalog-declared levels and applied independently to main and isolated child transports. Custom OpenAI-compatible providers use catalog records + `apiKeyEnv` or `keyless`. Errors are redacted before UI/transcript.
+`ProviderService` wraps auth storage, `ModelRegistry`, and a model transport. Cursor models use `@cursor/sdk`. Other models use `PiAiProvider`. Provider-specific shapes are normalized at the adapter. Reasoning effort is resolved against each model's catalog-declared levels and applied independently to main and isolated child transports. Custom OpenAI-compatible providers use catalog records + `apiKeyEnv` or `keyless`. Errors are redacted before UI/transcript. The main loop holds a stable facade that always forwards to the currently selected transport.
 
 ## Tools and permissions
 

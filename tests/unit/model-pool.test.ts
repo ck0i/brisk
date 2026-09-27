@@ -69,12 +69,39 @@ describe("model pool", () => {
     expect(events.at(-1)).toMatchObject({ type: "error", error: { kind: "rate_limit" } });
     expect(cc.calls).toBe(0);
   });
+
+  test("spreads subagents across plans even when each one opens a pooled advisor", async () => {
+    const pool = new ModelPool(0);
+    const children: string[] = [];
+    for (let index = 0; index < 4; index++) {
+      const child = pooledIn(
+        pool,
+        new FakeMember("opencode-go", []),
+        new FakeMember("commandcode", []),
+      );
+      pooledIn(pool, new FakeMember("opencode-go", []), new FakeMember("commandcode", []));
+      const events = await collect(child, text);
+      const answer = events.find((event) => event.type === "text_delta");
+      children.push(answer?.type === "text_delta" ? answer.delta : "none");
+    }
+
+    expect(children).toEqual([
+      "from opencode-go",
+      "from commandcode",
+      "from opencode-go",
+      "from commandcode",
+    ]);
+  });
 });
 
 function pooled(...members: FakeMember[]): PooledTransport {
+  return pooledIn(new ModelPool(0), ...members);
+}
+
+function pooledIn(pool: ModelPool, ...members: FakeMember[]): PooledTransport {
   return new PooledTransport({
     members,
-    pool: new ModelPool(0),
+    pool,
     memberReasoning: (_model, reasoning) => reasoning,
   });
 }

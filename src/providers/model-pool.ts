@@ -34,6 +34,7 @@ export function modelPoolKey(provider: string, id: string): string | undefined {
 //
 export class ModelPool {
   private readonly cooling = new Map<string, number>();
+  private readonly live = new Map<string, number>();
 
   //
   // random start so a fresh process doesn't always open its first session on the same plan.
@@ -54,13 +55,37 @@ export class ModelPool {
     this.cooling.clear();
   }
 
+  /*++
+
+  New conversations go to the healthy plan carrying the fewest live ones, and
+  the rotation only breaks ties. A plain round robin looked fine until subagent
+  advisors were pooled too: child, advisor, child, advisor hit the same parity
+  every time, so every child landed on one plan and every advisor on the other.
+
+  --*/
   assign(members: readonly ModelTransport[]): ModelTransport {
     const now = Date.now();
     const healthy = members.filter((member) => this.coolingUntil(member.model.provider) <= now);
     const candidates = healthy.length > 0 ? healthy : members;
-    const member = candidates[this.rotation++ % candidates.length];
+    const load = (member: ModelTransport): number => this.live.get(member.model.provider) ?? 0;
+    const lightest = Math.min(...candidates.map(load));
+    const tied = candidates.filter((member) => load(member) === lightest);
+    const member = tied.length === 1 ? tied[0] : tied[this.rotation++ % tied.length];
     if (!member) throw new RangeError("A model pool needs at least one member");
+    this.claim(member);
     return member;
+  }
+
+  claim(member: ModelTransport): void {
+    const provider = member.model.provider;
+    this.live.set(provider, (this.live.get(provider) ?? 0) + 1);
+  }
+
+  release(member: ModelTransport): void {
+    const provider = member.model.provider;
+    const remaining = (this.live.get(provider) ?? 0) - 1;
+    if (remaining > 0) this.live.set(provider, remaining);
+    else this.live.delete(provider);
   }
 }
 
@@ -79,7 +104,7 @@ export interface PooledTransportOptions {
 Routes one logical model across equivalent plans. I pin each conversation to a
 single plan instead of alternating per request: both gateways bill prompt-cache
 misses at the full input rate, so bouncing between them would burn more quota
-than it saves. The split comes from rotating new conversations (sessions,
+than it saves. The split comes from balancing new conversations (sessions,
 subagents, advisors) across plans, and from failing over when a plan is limited.
 
 A member that fails before streaming any output is invisible to the agent loop.
@@ -95,6 +120,7 @@ export class PooledTransport implements ModelTransport {
   private readonly memberReasoning: PooledTransportOptions["memberReasoning"];
   private sessionId: string | undefined;
   private current: ModelTransport;
+  private closed = false;
 
   constructor(options: PooledTransportOptions) {
     const [primary] = options.members;
@@ -129,10 +155,14 @@ export class PooledTransport implements ModelTransport {
     if (sessionId === this.sessionId) return;
     this.sessionId = sessionId;
     for (const member of this.members) member.setSessionId(sessionId);
+    this.pool.release(this.current);
     this.current = this.pool.assign(this.members);
   }
 
   close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.pool.release(this.current);
     for (const member of this.members) member.close();
   }
 
@@ -157,12 +187,12 @@ export class PooledTransport implements ModelTransport {
         if (error) break;
         if (event.type === "response_start" || event.type === "usage") continue;
         committed = true;
-        this.current = member;
+        this.moveTo(member);
         yield* held;
       }
       if (committed) return;
       if (!error) {
-        this.current = member;
+        this.moveTo(member);
         yield* held;
         return;
       }
@@ -170,6 +200,15 @@ export class PooledTransport implements ModelTransport {
       if (request.signal.aborted || error.kind === "aborted") break;
     }
     yield* failed;
+  }
+
+  private moveTo(member: ModelTransport): void {
+    if (member === this.current) return;
+    if (!this.closed) {
+      this.pool.release(this.current);
+      this.pool.claim(member);
+    }
+    this.current = member;
   }
 
   private next(

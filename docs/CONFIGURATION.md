@@ -69,9 +69,9 @@ User-level MCP servers live in `mcp.json` beside the global config and are manag
 | `defaultSubtaskModel`                                                               | Optional child default; else inherits parent model                                              |
 | `advisorModel`                                                                      | Optional tool-capable reviewer model; omitted disables the main advisor                         |
 | `subtaskAdvisorModel`                                                               | Child reviewer model; omitted inherits `advisorModel`; `"off"` disables child advisors          |
-| `effort`                                                                            | Main reasoning: `auto`, `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`            |
-| `subtaskEffort`                                                                     | Default child reasoning effort; same values as `effort`                                         |
-| `advisorEffort`                                                                     | Main and subagent advisor reasoning effort; same values as `effort`                             |
+| `effort`                                                                            | Main reasoning: `auto` (default), `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`  |
+| `subtaskEffort`                                                                     | Default child reasoning effort; same values as `effort` (default `auto`)                        |
+| `advisorEffort`                                                                     | Main and subagent advisor reasoning effort; same values as `effort` (default `auto`)            |
 | `permissionMode`                                                                    | `safe`, `write`, or prompt-free `yolo` (default `write`); hard-blocked operations remain denied |
 | `maxSubagents` / `maxSubagentDepth`                                                 | Concurrency and nesting; `0` disables children                                                  |
 | `goalMaxTurns`                                                                      | Optional autonomous `/goal` continuation limit; omitted means unlimited                         |

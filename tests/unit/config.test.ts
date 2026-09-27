@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   ConfigLoadError,
   ConfigManager,
+  DEFAULT_CONFIG,
   loadConfig,
   parseConfigText,
   projectConfigPath,
@@ -45,6 +46,14 @@ describe("configuration", () => {
       advisorModel: "anthropic/reviewer",
       subtaskAdvisorModel: "off",
       ui: { theme: "high-contrast" },
+    });
+  });
+
+  test("defaults every reasoning effort to auto", () => {
+    expect(DEFAULT_CONFIG).toMatchObject({
+      effort: "auto",
+      subtaskEffort: "auto",
+      advisorEffort: "auto",
     });
   });
 
